@@ -1,0 +1,352 @@
+@import "tailwindcss";
+
+@theme {
+  --color-candy-blue: #021a68;
+  --color-candy-blue-bright: #0a4bf0;
+  --color-candy-blue-deep: #000c30;
+  --color-chrome-start: #ffffff;
+  --color-chrome-mid: #94a3b8;
+  --color-chrome-end: #334155;
+  
+  --animate-shine: shine 4s ease-in-out infinite;
+  
+  @keyframes shine {
+    0% { background-position: -200% center; }
+    50% { background-position: 200% center; }
+    100% { background-position: 200% center; }
+  }
+}
+
+/* Custom High Gloss & Metallic Chrome utilities */
+.chrome-text {
+  background: linear-gradient(
+    to bottom,
+    #ffffff 0%,
+    #f1f5f9 22%,
+    #cbd5e1 42%,
+    #334155 47%,
+    #020617 50%,
+    #1e293b 53%,
+    #e2e8f0 68%,
+    #ffffff 88%,
+    #94a3b8 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-size: 100% 100%;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.8));
+}
+
+.chrome-border-metallic {
+  border: 2px solid;
+  border-image: linear-gradient(
+    135deg,
+    #ffffff 0%,
+    #f1f5f9 10%,
+    #94a3b8 25%,
+    #334155 45%,
+    #e2e8f0 55%,
+    #1e293b 75%,
+    #cbd5e1 90%,
+    #ffffff 100%
+  ) 1;
+}
+
+.candy-paint-body {
+  background: radial-gradient(
+    circle at 50% -30%,
+    #0b31cc 0%,
+    #04125c 30%,
+    #010522 65%,
+    #000109 100%
+  );
+  box-shadow: inset 0 2px 60px rgba(5, 45, 210, 0.7);
+  background-attachment: fixed;
+}
+
+/* Luxury high-gloss coat that resembles multi-layer car paint clearcoat */
+.candy-coat-layer {
+  background: linear-gradient(
+    135deg,
+    rgba(8, 48, 224, 0.15) 0%,
+    rgba(2, 6, 36, 0.5) 50%,
+    rgba(0, 0, 0, 0.85) 100%
+  );
+  border: 2.5px solid;
+  border-image: linear-gradient(
+    135deg,
+    #ffffff 0%,
+    #cbd5e1 15%,
+    #1e293b 40%,
+    #082ebb 55%,
+    #020b30 75%,
+    #94a3b8 100%
+  ) 1;
+  box-shadow: 
+    0 15px 35px rgba(0, 0, 0, 0.9),
+    inset 0 1px 4px rgba(255, 255, 255, 0.25);
+  position: relative;
+}
+
+.high-gloss-reflection {
+  position: relative;
+  overflow: hidden;
+}
+
+.high-gloss-reflection::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -150%;
+  width: 70%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.45) 45%,
+    rgba(255, 255, 255, 0.6) 50%,
+    rgba(255, 255, 255, 0.45) 55%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: skewX(-32deg);
+  pointer-events: none;
+  animation: shine-sweep 6s cubic-bezier(0.1, 0.8, 0.1, 1) infinite;
+}
+
+@keyframes shine-sweep {
+  0% { left: -150%; }
+  10% { left: 150%; }
+  100% { left: 150%; }
+}
+
+.chrome-panel-bezel {
+  background: linear-gradient(145deg, #020618 0%, #000106 100%);
+  border: 2.5px solid;
+  border-image: linear-gradient(
+    135deg,
+    #ffffff 0%,
+    #f8fafc 8%,
+    #94a3b8 32%,
+    #334155 48%,
+    #ffffff 52%,
+    #475569 68%,
+    #e2e8f0 88%,
+    #ffffff 100%
+  ) 1;
+  box-shadow: 
+    0 25px 50px -12px rgba(0, 0, 0, 0.95),
+    inset 0 2px 4px rgba(255, 255, 255, 0.25);
+}
+
+.candy-fill-reflection {
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(255, 255, 255, 0.1) 49%,
+    rgba(255, 255, 255, 0) 50%,
+    rgba(0, 0, 0, 0.2) 51%,
+    rgba(0, 0, 0, 0.6) 100%
+  );
+}
+
+.chrome-button-billet {
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    #f1f5f9 20%,
+    #cbd5e1 45%,
+    #94a3b8 50%,
+    #64748b 55%,
+    #e2e8f0 85%,
+    #ffffff 100%
+  );
+  border: 2px solid #ffffff;
+  box-shadow: 
+    0 4px 6px rgba(0,0,0,0.6),
+    inset 0 1px 2px rgba(255,255,255,0.9),
+    0 0 12px rgba(255,255,255,0.25);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+  font-family: monospace;
+  font-weight: 900;
+  color: #020617;
+  transition: all 0.15s ease-in-out;
+}
+
+.chrome-button-billet:hover {
+  filter: brightness(1.08);
+  box-shadow: 
+    0 6px 12px rgba(0,0,0,0.7),
+    inset 0 1.5px 3px rgba(255,255,255,1),
+    0 0 18px rgba(255,255,255,0.4);
+}
+
+.chrome-button-billet:active {
+  transform: scale(0.96);
+  box-shadow: 
+    0 2px 3px rgba(0,0,0,0.8),
+    inset 0 1px 1px rgba(0,0,0,0.2);
+}
+
+/* Custom sleek slider handle */
+input[type="range"]::-webkit-slider-thumb {
+  border: 2px solid #ffffff;
+  height: 18px;
+  width: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff 30%, #e2e8f0 55%, #64748b 78%, #1e293b 100%);
+  box-shadow: 
+    0 0 12px rgba(255,255,255,0.95),
+    0 4px 6px rgba(0,0,0,0.5);
+  cursor: pointer;
+  -webkit-appearance: none;
+  margin-top: -6px;
+}
+
+/* Atomic Bass Boost Shockwave Animations */
+@keyframes atomic-shake {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  10% { transform: translate(-4px, 3px) rotate(-1deg); }
+  20% { transform: translate(4px, -3px) rotate(1deg); }
+  30% { transform: translate(-3px, -4px) rotate(-1.5deg); }
+  40% { transform: translate(3px, 4px) rotate(1.5deg); }
+  50% { transform: translate(-2px, 3px) rotate(-1deg); }
+  60% { transform: translate(2px, -3px) rotate(1deg); }
+  70% { transform: translate(-3px, 2px) rotate(1.5deg); }
+  80% { transform: translate(3px, -2px) rotate(-1deg); }
+  90% { transform: translate(-2px, -3px) rotate(0deg); }
+  100% { transform: translate(0, 0) rotate(0deg); }
+}
+
+.atomic-shaking {
+  animation: atomic-shake 0.4s ease-in-out infinite;
+}
+
+@keyframes atomic-shockwave {
+  0% {
+    transform: translate(-50%, -50%) scale(0.01);
+    opacity: 1;
+    border-width: 24px;
+    border-color: rgba(255, 255, 255, 1);
+    box-shadow: 0 0 50px rgba(255, 255, 255, 1), 
+                inset 0 0 40px rgba(224, 242, 254, 0.9);
+  }
+  15% {
+    opacity: 1;
+    border-width: 14px;
+    border-color: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 0 80px rgba(224, 242, 254, 0.9), 
+                0 0 140px rgba(255, 255, 255, 0.8),
+                inset 0 0 60px rgba(186, 230, 253, 0.95);
+  }
+  50% {
+    opacity: 0.85;
+    border-width: 6px;
+    border-color: rgba(224, 242, 254, 0.8);
+    border-style: double;
+    box-shadow: 0 0 160px rgba(186, 230, 253, 0.75), 
+                0 0 220px rgba(255, 255, 255, 0.5),
+                inset 0 0 100px rgba(56, 189, 248, 0.4);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(12.0); /* High-speed outward propagation representing the real blast boundaries! */
+    opacity: 0;
+    border-width: 0.5px;
+    border-color: rgba(255, 255, 255, 0);
+    filter: blur(2px);
+    box-shadow: 0 0 350px rgba(255, 255, 255, 0), 
+                inset 0 0 200px rgba(56, 189, 248, 0);
+  }
+}
+
+.animate-atomic-shockwave-1 {
+  animation: atomic-shockwave 1.6s cubic-bezier(0.1, 0.8, 0.15, 1) forwards;
+}
+
+.animate-atomic-shockwave-2 {
+  animation: atomic-shockwave 1.6s cubic-bezier(0.1, 0.8, 0.15, 1) forwards;
+  animation-delay: 0.12s;
+}
+
+.animate-atomic-shockwave-3 {
+  animation: atomic-shockwave 1.6s cubic-bezier(0.1, 0.8, 0.15, 1) forwards;
+  animation-delay: 0.24s;
+}
+
+.animate-atomic-shockwave-4 {
+  animation: atomic-shockwave 1.8s cubic-bezier(0.1, 0.8, 0.15, 1) forwards;
+  animation-delay: 0.36s;
+}
+
+@keyframes atomic-flash {
+  0% {
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+    background-color: #ffffff;
+  }
+  25% {
+    opacity: 0.85;
+    background-color: #f0f9ff; /* extremely light sky ice-white */
+  }
+  100% {
+    opacity: 0;
+    background-color: #e0f2fe;
+  }
+}
+
+.animate-atomic-flash {
+  animation: atomic-flash 1.6s cubic-bezier(0.1, 0.9, 0.2, 1) forwards;
+}
+
+@keyframes atomic-fireball {
+  0% {
+    transform: translate(-50%, -50%) scale(0.05);
+    opacity: 1;
+    background: radial-gradient(circle, #ffffff 20%, #e0f2fe 50%, #bae6fd 80%, rgba(255, 255, 255, 0) 100%);
+    filter: blur(1px);
+  }
+  50% {
+    opacity: 0.85;
+    background: radial-gradient(circle, #ffffff 10%, #bae6fd 50%, #38bdf8 80%, rgba(56, 189, 248, 0) 100%);
+    filter: blur(8px);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(2.5);
+    opacity: 0;
+    background: radial-gradient(circle, #f0f9ff 0%, #7dd3fc 45%, rgba(14, 165, 233, 0) 100%);
+    filter: blur(20px);
+  }
+}
+
+.animate-atomic-fireball {
+  animation: atomic-fireball 1.8s cubic-bezier(0.1, 0.8, 0.2, 1) forwards;
+}
+
+/* Glass Shattering Shard Animations */
+@keyframes glass-shard-fly {
+  0% {
+    transform: translate(-50%, -50%) translate(0, 0) rotate(0deg) scale(0);
+    opacity: 1;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) translate(var(--tx), var(--ty)) rotate(var(--rot)) scale(1.1);
+    opacity: 0;
+  }
+}
+
+.glass-shard {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(1.5px);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.5), inset 0 0 5px rgba(255, 255, 255, 0.7);
+  animation: glass-shard-fly 1.7s cubic-bezier(0.1, 0.8, 0.15, 1) forwards;
+}
+

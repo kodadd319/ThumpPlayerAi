@@ -1,0 +1,67 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global safety net catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    
+    // Hardened global helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    // Entity User Validation Helper
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid']) 
+          && data.uid is string 
+          && data.uid.size() <= 128
+          && (!('accentTheme' in data) || (data.accentTheme is string && data.accentTheme.size() <= 32))
+          && (!('lastLogin' in data) || (data.lastLogin is string && data.lastLogin.size() <= 64));
+    }
+    
+    // Entity Track Validation Helper
+    function isValidTrack(data) {
+      return data.keys().hasAll(['uid', 'name', 'url'])
+          && data.uid is string
+          && data.uid.size() <= 128
+          && data.name is string
+          && data.name.size() <= 256
+          && data.url is string
+          && data.url.size() <= 2048
+          && (!('artist' in data) || (data.artist is string && data.artist.size() <= 256))
+          && (!('album' in data) || (data.album is string && data.album.size() <= 256))
+          && (!('genre' in data) || (data.genre is string && data.genre.size() <= 128))
+          && (!('storagePath' in data) || (data.storagePath is string && data.storagePath.size() <= 512))
+          && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64));
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data)
+                    && request.resource.data.uid == resource.data.uid;
+      allow delete: if isOwner(userId);
+    }
+    
+    match /tracks/{trackId} {
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid && isValidTrack(request.resource.data);
+      allow update: if isSignedIn() 
+                    && resource.data.uid == request.auth.uid 
+                    && request.resource.data.uid == request.auth.uid 
+                    && isValidTrack(request.resource.data);
+      allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+    }
+  }
+}

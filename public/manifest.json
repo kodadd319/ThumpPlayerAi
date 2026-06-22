@@ -1,0 +1,23 @@
+{
+  "name": "ThumpPlayerAi - Car Audio Player",
+  "short_name": "ThumpPlayer",
+  "description": "Your music optimized for your ride. Interactive car audio player featuring real-time EQ, bass-booster knobs, and virtual cabin visualizers.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}

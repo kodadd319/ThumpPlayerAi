@@ -1,0 +1,1625 @@
+import React, { useState, useRef, useEffect, useMemo } from "react"; 
+import {   
+  Music,   
+  Upload,   
+  Play,   
+  Pause,   
+  SkipForward,   
+  SkipBack,   
+  Sparkles,   
+  Cpu,   
+  Car,   
+  Sliders,   
+  Volume2,   
+  Trash2,   
+  Activity,   
+  Info,   
+  Shuffle,   
+  Repeat,   
+  AlertTriangle,   
+  VolumeX,   
+  PlusCircle,   
+  Clock,   
+  Dribbble,   
+  HelpCircle,   
+  Square,   
+  FastForward,   
+  Rewind,   
+  Flame,   
+  Bomb,   
+  PhoneCall,
+  Menu,
+  X,
+  LogOut
+} from "lucide-react"; 
+import { Track, VehicleInfo, DspSettings, Preset } from "./types"; 
+import { CarAudioEngine } from "./utils/audioEngine"; 
+import { BassKnob } from "./components/BassKnob"; 
+import { EqSliders } from "./components/EqSliders"; 
+import { DoubleDinPlayer } from "./utils/DoubleDinPlayer"; // Wait, is it "DoubleDinPlayer" or "定位 DoubleDinPlayer"? Oh, let's check the import in user query.
+// In the user's query it says: import { DoubleDinPlayer } from "./utils/DoubleDinPlayer";
+import { Logo } from "./components/Logo"; 
+import { AuthView } from "./components/AuthView"; 
+import { MyMusicView } from "./components/MyMusicView"; 
+import { UpgradeView } from "./components/UpgradeView";
+import { motion, AnimatePresence } from "motion/react"; 
+
+// Firebase Integrations Block 
+import { auth, db, storage, googleProvider } from "./firebase"; 
+import { onAuthStateChanged, signOut, User } from "firebase/auth"; 
+import { doc, getDoc, setDoc, collection, addDoc, query, where, onSnapshot, deleteDoc } from "firebase/firestore"; 
+import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage"; 
+
+// Standard Operation Types for Firestore Hardened Audits 
+enum OperationType {   
+  CREATE = "create",   
+  UPDATE = "update",   
+  DELETE = "delete",   
+  LIST = "list",   
+  GET = "get",   
+  WRITE = "write" 
+}
+
+// Global Secure Firestore Error Handling Wrapper 
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {   
+  const errPayload = {     
+    error: error instanceof Error ? error.message : String(error),     
+    authInfo: {       
+      userId: auth.currentUser?.uid || null,       
+      email: auth.currentUser?.email || null,       
+      emailVerified: auth.currentUser?.emailVerified || false,       
+      isAnonymous: auth.currentUser?.isAnonymous || false,       
+      tenantId: auth.currentUser?.tenantId || null,       
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({         
+        providerId: provider.providerId,         
+        email: provider.email,       
+      })) || []     
+    },     
+    operationType,     
+    path   };   
+  console.error("Firestore Security/Execution Violation Caught:", JSON.stringify(errPayload, null, 2));   
+  throw new Error(JSON.stringify(errPayload)); 
+}
+
+// Pure JS ID3 parser helper functions to extract tags safely client-side 
+function parseID3v1(buffer: ArrayBuffer): { title?: string; artist?: string; album?: string } | null {   
+  if (buffer.byteLength < 128) return null;   
+  const view = new DataView(buffer, buffer.byteLength - 128, 128);   
+  const decoder = new TextDecoder("utf-8");   
+  // Check "TAG"   
+  const tag = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2));   
+  if (tag !== "TAG") return null;   
+  const readString = (offset: number, length: number) => {     
+    const bytes = new Uint8Array(buffer, buffer.byteLength - 128 + offset, length);     
+    let end = bytes.indexOf(0);     
+    if (end === -1) end = bytes.length;     
+    return decoder.decode(bytes.subarray(0, end)).trim();   
+  };   
+  return {     
+    title: readString(3, 30),     
+    artist: readString(33, 30),     
+    album: readString(63, 30)   
+  }; 
+}
+
+function parseID3v2(buffer: ArrayBuffer): { title?: string; artist?: string; album?: string } | null {   
+  const bytes = new Uint8Array(buffer);   
+  if (bytes.length < 10) return null;   
+  if (bytes[0] !== 0x49 || bytes[1] !== 0x44 || bytes[2] !== 0x33) return null; // "ID3"   
+  const majorVersion = bytes[3];   
+  if (majorVersion !== 3 && majorVersion !== 4) return null;   
+  const tagSize = ((bytes[6] & 0x7f) << 21) | ((bytes[7] & 0x7f) << 14) | ((bytes[8] & 0x7f) << 7) | (bytes[9] & 0x7f);   
+  const totalLength = Math.min(tagSize + 10, bytes.length);   
+  let offset = 10;   
+  const result: { title?: string; artist?: string; album?: string } = {};   
+  const decoderUTF8 = new TextDecoder("utf-8");   
+  const decoderUTF16 = new TextDecoder("utf-16");   
+  while (offset + 10 < totalLength) {     
+    const frameIdArr = bytes.subarray(offset, offset + 4);     
+    const frameId = String.fromCharCode(...frameIdArr);     
+    if (frameIdArr[0] === 0 || !/^[A-Z0-9]+$/.test(frameId)) break;               
+    let frameSize = 0;     
+    if (majorVersion === 4) {       
+      frameSize = ((bytes[offset + 4] & 0x7f) << 21) | ((bytes[offset + 5] & 0x7f) << 14) | ((bytes[offset + 6] & 0x7f) << 7) | (bytes[offset + 7] & 0x7f);     
+    } else {       
+      frameSize = (bytes[offset + 4] << 24) | (bytes[offset + 5] << 16) | (bytes[offset + 6] << 8) | bytes[offset + 7];     
+    }               
+    if (frameSize <= 0 || offset + 10 + frameSize > totalLength) break;               
+    const frameData = bytes.subarray(offset + 10, offset + 10 + frameSize);               
+    const decodeText = (data: Uint8Array) => {       
+      if (data.length <= 1) return "";       
+      const encoding = data[0];       
+      const content = data.subarray(1);              
+      try {         
+        if (encoding === 0) return decoderUTF8.decode(content).replace(/\0/g, "").trim();         
+        else if (encoding === 1) return decoderUTF16.decode(content).replace(/\0/g, "").trim();         
+        else if (encoding === 2) return new TextDecoder("utf-16be").decode(content).replace(/\0/g, "").trim();         
+        else if (encoding === 3) return decoderUTF8.decode(content).replace(/\0/g, "").trim();       
+      } catch (err) {         
+        return decoderUTF8.decode(content).replace(/\0/g, "").trim();       
+      }       
+      return decoderUTF8.decode(content).replace(/\0/g, "").trim();     
+    };               
+    if (frameId === "TIT2") result.title = decodeText(frameData);     
+    else if (frameId === "TPE1") result.artist = decodeText(frameData);     
+    else if (frameId === "TALB") result.album = decodeText(frameData);               
+    offset += 10 + frameSize;   
+  }   
+  return result; 
+}
+
+function scanMetadata(file: File): Promise<{ title: string; artist: string; album: string }> {   
+  return new Promise((resolve) => {     
+    let defaultArtist = "Unknown Artist";     
+    let defaultAlbum = "Unknown Album";     
+    let defaultTitle = file.name.replace(/\.[^/.]+$/, "");          
+    if (defaultTitle.includes(" - ")) {       
+      const parts = defaultTitle.split(" - ");       
+      defaultArtist = parts[0].trim();       
+      defaultTitle = parts[1].trim();     
+    }          
+    const reader = new FileReader();     
+    reader.onload = function(e) {       
+      const buffer = e.target?.result as ArrayBuffer;       
+      if (!buffer) {         
+        resolve({ title: defaultTitle, artist: defaultArtist, album: defaultAlbum });         
+        return;       
+      }              
+      try {         
+        const v2 = parseID3v2(buffer);         
+        if (v2 && (v2.title || v2.artist || v2.album)) {           
+          resolve({             
+            title: v2.title || defaultTitle,             
+            artist: v2.artist || defaultArtist,             
+            album: v2.album || defaultAlbum           
+          });           
+          return;         
+        }       
+      } catch (err) {         
+        console.error("ID3v2 parsing error", err);       
+      }              
+      if (file.size <= buffer.byteLength) {         
+        try {           
+          const v1 = parseID3v1(buffer);           
+          if (v1 && (v1.title || v1.artist || v1.album)) {             
+            resolve({               
+              title: v1.title || defaultTitle,               
+              artist: v1.artist || defaultArtist,               
+              album: v1.album || defaultAlbum             
+            });             
+            return;           
+          }         
+        } catch (err) {           
+          console.error("ID3v1 parsing error", err);         
+        }         
+        resolve({ title: defaultTitle, artist: defaultArtist, album: defaultAlbum });       
+      } else {         
+        const endReader = new FileReader();         
+        endReader.onload = function(evt) {           
+          try {             
+            const endBuffer = evt.target?.result as ArrayBuffer;             
+            if (endBuffer) {               
+              const v1 = parseID3v1(endBuffer);               
+              if (v1 && (v1.title || v1.artist || v1.album)) {                 
+                resolve({                   
+                  title: v1.title || defaultTitle,                   
+                  artist: v1.artist || defaultArtist,                   
+                  album: v1.album || defaultAlbum                 
+                });                 
+                return;               
+              }             
+            }           
+          } catch (e1) {             
+            console.error("ID3v1 read error", e1);           
+          }           
+          resolve({ title: defaultTitle, artist: defaultArtist, album: defaultAlbum });         
+        };         
+        const slice = file.slice(file.size - 128);         
+        endReader.readAsArrayBuffer(slice);       
+      }     
+    };          
+    const sliceLimit = Math.min(128 * 1024, file.size);     
+    reader.readAsArrayBuffer(file.slice(0, sliceLimit));   
+  }); 
+}
+
+// Sound presets designed for car audio rigs 
+const BUILTIN_PRESETS: Preset[] = [     
+  {
+    name: "Clean Street Cruising (Flat EQ)",     
+    eqBands: [0, 0, 0, 0, 0],     
+    bassBoost: 0,     
+    reverbWet: 0.05,     
+    delayOffsetMs: 0   
+  },     
+  {
+    name: "Heavy Trunk Slammer (Basshead)",     
+    eqBands: [10, 4, -2, -1, 3],     
+    bassBoost: 85,     
+    reverbWet: 0.12,     
+    delayOffsetMs: 8   
+  },     
+  {
+    name: "Whip Master SQ (Competition Loud)",     
+    eqBands: [6, 3, 1, 4, 6],     
+    bassBoost: 60,     
+    reverbWet: 0.08,     
+    delayOffsetMs: 14   
+  },
+  {
+    name: "Studio Clean Remastered (AI PRO)",
+    eqBands: [3, 1, 0, 1, 4],
+    bassBoost: 40,
+    reverbWet: 0.04,
+    delayOffsetMs: 4,
+    isPremium: true
+  },
+  {
+    name: "Cabin Sound Calibrator (AI PRO)",
+    eqBands: [-2, 1, 3, 2, -1],
+    bassBoost: 25,
+    reverbWet: 0.06,
+    delayOffsetMs: 10,
+    isPremium: true
+  },
+  {
+    name: "Stadium Show Bass (AI PRO)",
+    eqBands: [8, 4, 1, 5, 7],
+    bassBoost: 75,
+    reverbWet: 0.28,
+    delayOffsetMs: 20,
+    isPremium: true
+  }
+]; 
+
+export default function App() {   
+  const [currentView, setCurrentView] = useState<"landing" | "auth" | "player" | "mymusic" | "privacy" | "agreement" | "upgrade">("auth");   
+  const [subscriptionTier, setSubscriptionTier] = useState<"free" | "paid">(
+    () => (localStorage.getItem("thumplayer_sub_tier") as "free" | "paid") || "free"
+  );
+  const [globalPremiumPrompt, setGlobalPremiumPrompt] = useState<string>("");
+  const [playlist, setPlaylist] = useState<Track[]>([]);   
+  const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(-1);   
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);   
+  const [songProgress, setSongProgress] = useState<number>(0);   
+  const [songDuration, setSongDuration] = useState<number>(0);   
+  const [volume, setVolume] = useState<number>(0.85);   
+  const [isMuted, setIsMuted] = useState<boolean>(false);   
+  const [repeatMode, setRepeatMode] = useState<"none" | "one" | "all">("all");   
+  const [shuffleMode, setShuffleMode] = useState<boolean>(false);   
+  const [playlistViewMode, setPlaylistViewMode] = useState<"all" | "artist" | "album">("all");   
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});   
+  const [playerTab, setPlayerTab] = useState<"workbench" | "mymusic">("workbench");   
+  const [isOpen, setIsOpen] = useState<boolean>(false);
+  const toggleMenu = () => {
+    setIsOpen((prev) => !prev);
+  };
+
+  const tracksByArtist = useMemo(() => {     
+    const groups: Record<string, Track[]> = {};     
+    playlist.forEach((track) => {       
+      const artist = track.artist || "Unknown Artist";       
+      if (!groups[artist]) groups[artist] = [];       
+      groups[artist].push(track);     
+    });     
+    return groups;   
+  }, [playlist]);   
+
+  const tracksByAlbum = useMemo(() => {     
+    const groups: Record<string, Track[]> = {};     
+    playlist.forEach((track) => {       
+      const album = track.album || "Unknown Album";       
+      if (!groups[album]) groups[album] = [];       
+      groups[album].push(track);     
+    });     
+    return groups;   
+  }, [playlist]);   
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);   
+  const engineRef = useRef<CarAudioEngine | null>(null);   
+  const [engineReady, setEngineReady] = useState(false);   
+  const [currentUser, setCurrentUser] = useState<User | null>(null);   
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);   
+  const [firestoreTracks, setFirestoreTracks] = useState<Track[]>([]);   
+  const [isUploading, setIsUploading] = useState<boolean>(false);   
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);   
+  const [uploadError, setUploadError] = useState<string>("");   
+  const [uploadSuccess, setUploadSuccess] = useState<string>("");   
+  const [accentTheme, setAccentTheme] = useState<"cyan" | "cherry" | "chrome">("cyan");   
+  const [headunitTime, setHeadunitTime] = useState("13:30");   
+  const [isPhoneScreenActive, setIsPhoneScreenActive] = useState(false);   
+  const [dialedNumber, setDialedNumber] = useState("");   
+  const [callStatus, setCallStatus] = useState("");   
+
+  useEffect(() => {     
+    const updateTime = () => {       
+      const now = new Date();       
+      let hours = now.getHours();       
+      const minutes = String(now.getMinutes()).padStart(2, "0");       
+      const ampm = hours >= 12 ? "PM" : "AM";       
+      hours = hours % 12;       
+      hours = hours ? hours : 12;       
+      setHeadunitTime(`${hours}:${minutes} ${ampm}`);     
+    };     
+    updateTime();     
+    const timer = setInterval(updateTime, 1000);     
+    return () => clearInterval(timer);   
+  }, []);
+
+  useEffect(() => {     
+    setAuthLoading(true);     
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {       
+      if (user) {         
+        console.log("Firebase Authenticated Session Established:", user.uid);         
+        setCurrentUser(user);         
+        setIsLoggedIn(true);
+        setAuthLoading(false);         
+        const userDocRef = doc(db, "users", user.uid);         
+        const unsubscribeSettings = onSnapshot(userDocRef, (docSnap) => {           
+          if (docSnap.exists()) {             
+            const data = docSnap.data();             
+            if (data.accentTheme) {               
+               setAccentTheme(data.accentTheme);             
+            }           
+          } else {             
+            setDoc(userDocRef, {               
+              uid: user.uid,               
+              accentTheme: "cyan",               
+              lastLogin: new Date().toISOString()             
+            }, { merge: true }).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));           
+          }         
+        }, (err) => {           
+          handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);         
+        });         
+        const tracksQuery = query(collection(db, "tracks"), where("uid", "==", user.uid));         
+        const unsubscribeTracks = onSnapshot(tracksQuery, (querySnapshot) => {           
+          const songs: Track[] = [];           
+          querySnapshot.forEach((docSnap) => {             
+            const data = docSnap.data();             
+            songs.push({               
+              id: docSnap.id,               
+              name: data.name || "Cloud Track",               
+              artist: data.artist || "Anonymous Streamer",               
+              album: data.album || "Cloud Catalog Single",               
+              duration: data.duration || 180,               
+              genre: data.genre || "Bass Head Trap",               
+              url: data.url             
+            });           
+          });           
+          setFirestoreTracks(songs);         
+        }, (err) => {           
+          handleFirestoreError(err, OperationType.LIST, "tracks");         
+        });         
+        return () => {           
+          unsubscribeSettings();           
+          unsubscribeTracks();         
+        };       
+      } else {         
+        setCurrentUser(null);         
+        setIsLoggedIn(false);
+        setFirestoreTracks([]);         
+        setAuthLoading(false);       
+      }     
+    });     
+    return () => unsubscribeAuth();   
+  }, []);
+
+  useEffect(() => {     
+    if (!authLoading) {
+      if (!isLoggedIn) {       
+        const protectedViews = ["player", "mymusic", "upgrade"];
+        if (protectedViews.includes(currentView)) {
+          setCurrentView("auth");
+        }
+      } else {
+        if (currentView === "auth") {
+          setCurrentView("player");
+        }
+      }
+    }   
+  }, [isLoggedIn, currentView, authLoading]);   
+
+  const handleAccentThemeChange = async (theme: "cyan" | "cherry" | "chrome") => {     
+    setAccentTheme(theme);     
+    if (currentUser) {       
+      try {         
+        const userDocRef = doc(db, "users", currentUser.uid);         
+        await setDoc(userDocRef, {           
+          accentTheme: theme,           
+          updatedAt: new Date().toISOString()         
+        }, { merge: true });         
+        console.log("Persistent styling preference written to Firestore:", theme);       
+      } catch (err) {         
+        handleFirestoreError(err, OperationType.WRITE, `users/${currentUser.uid}`);       
+      }     
+    }   
+  };   
+
+  useEffect(() => {     
+    const sampleTracks: Track[] = [       
+      {         
+        id: "sample-40hz",         
+        name: "40Hz Subwoofer Competition Tone",         
+        artist: "ThumPlayer DSP sweeps",         
+        album: "DSP Lab sweeps",         
+        duration: 90,         
+        genre: "SPL Test Sweep",         
+        file: new File([], "40hz_test_sweep.mp3")       
+      },       
+      {         
+        id: "sample-heavy",         
+        name: "Trap Heavy Bassline Drop (Synthesized)",         
+        artist: "ThumPlayer Beats",         
+        album: "Thump Synths Vol 1",         
+        duration: 120,         
+        genre: "Booming Trap",         
+        file: new File([], "trap_bassline_drop.mp3")        
+      },       
+      {         
+        id: "sample-sweep",         
+        name: "25Hz - 120Hz Fast Sub Sweep",         
+        artist: "DSP Cabin Acoustics",         
+        album: "Cabin Acoustics Calibrations",         
+        duration: 45,         
+        genre: "Frequency Sweep",         
+        file: new File([], "sub_sweep_acoustic.mp3")       
+      }     
+    ];     
+    // Retain any tracks in current playlist that start with "local-"
+    const localTracks = playlist.filter(track => track.id.startsWith("local-"));
+    const mergedList = [...sampleTracks, ...localTracks, ...firestoreTracks];     
+    setPlaylist(mergedList);     
+    if (currentTrackIndex === -1 && mergedList.length > 0) {       
+      setCurrentTrackIndex(0);     
+    }   
+  }, [firestoreTracks]);   
+
+  const appendDialDigit = (digit: string) => {     
+    if (dialedNumber.length < 15) {       
+      setDialedNumber((prev) => prev + digit);     
+    }   
+  };   
+
+  const clearDialedDigits = () => {     
+    setDialedNumber("");     
+    setCallStatus("");   
+  };   
+
+  const triggerPhoneCall = () => {     
+    if (!dialedNumber) {       
+      setCallStatus("ENTER DIGITS FIRST_");       
+      return;     
+    }     
+    if (callStatus) {       
+      setCallStatus("");       
+      return;     
+    }          
+    setCallStatus("DIALING SPECIALIST STATION...");     
+    setTimeout(() => {       
+      setCallStatus("LINE CONNECTED: 'Yo! This is Alpine Support. You want more trunk boom and hairtrick thump? Turn on that ATOMIC BLAST! Keep the street slam loud!'");     
+    }, 2000);   
+  };   
+
+  const [syntheticOsc, setSyntheticOsc] = useState<OscillatorNode | null>(null);   
+  const [syntheticGain, setSyntheticGain] = useState<GainNode | null>(null);   
+  const [currentSyntheticLabel, setCurrentSyntheticLabel] = useState<string>("");   
+
+  const [vehicleInfo, setVehicleInfo] = useState<VehicleInfo>({     
+    vehicleType: "Sedan",     
+    subwooferConfig: "Single 12\" Sub",     
+    soundPreference: "SQL (Sound Quality Loud)"   
+  });   
+
+  const [dspSettings, setDspSettings] = useState<DspSettings>({     
+    eqBands: [4, 1, 0, 2, 3],     
+    bassBoost: 50.0,     
+    reverbWet: 0.08,     
+    delayOffsetMs: 12,     
+    highPassFilterHz: 30,     
+    subCrossoverHz: 80,     
+    justification: "ThumPlayer setup loaded. Select your vehicle cabin size, your trunk speaker box gear, and slam that AI Sound Optimization button! We'll formulate a premium street-competition DSP profile tailored specifically for your ride."   
+  });   
+
+  const [selectedPresetName, setSelectedPresetName] = useState<string>("Whip Master SQ (Competition Loud)");   
+  const [isMaxBass, setIsMaxBass] = useState<boolean>(false);   
+  const [isOptimizing, setIsOptimizing] = useState<boolean>(false);   
+  const [showAtomicExplosion, setShowAtomicExplosion] = useState<boolean>(false);   
+
+  const handleSubscriptionTierChange = (tier: "free" | "paid") => {
+    setSubscriptionTier(tier);
+    localStorage.setItem("thumplayer_sub_tier", tier);
+    if (tier === "paid") {
+      setGlobalPremiumPrompt(""); 
+      console.log("Premium plan activated - Unlocked custom presets, unlimited track uploads, and AI high-fidelity filter algorithms!");
+    } else {
+      console.log("Restoring Free tier limitations - checking and relocking specific features.");
+      setGlobalPremiumPrompt("");
+      // Reset selected preset if it was a premium one to avoid unauthorized premium state leakage
+      if (BUILTIN_PRESETS.some(p => p.name === selectedPresetName && p.isPremium)) {
+        const firstFreePreset = BUILTIN_PRESETS.find(p => !p.isPremium);
+        if (firstFreePreset) {
+          applyAudioPreset(firstFreePreset);
+        }
+      }
+    }
+  };
+
+  const ensureEngine = () => {     
+    if (!audioRef.current) return;     
+    if (!engineRef.current) {       
+      const e = new CarAudioEngine(audioRef.current);       
+      e.init();       
+      engineRef.current = e;       
+      setEngineReady(true);              
+      e.applyDspSettings(dspSettings);       
+      e.audioElement.volume = isMuted ? 0 : volume;     
+    } else {       
+      engineRef.current.resume();     
+    }   
+  };   
+
+  const currentTrack = useMemo(() => {     
+    if (currentTrackIndex >= 0 && currentTrackIndex < playlist.length) {       
+      return playlist[currentTrackIndex];     
+    }     
+    return null;   
+  }, [playlist, currentTrackIndex]);   
+
+  useEffect(() => {     
+    const audio = audioRef.current;     
+    if (!audio) return;     
+    const onTimeUpdate = () => {       
+      setSongProgress(audio.currentTime);     
+    };     
+    const onLoadedMetadata = () => {       
+      setSongDuration(audio.duration || 120);     
+    };     
+    const onEnded = () => {       
+      handleNextTrack();     
+    };     
+    audio.addEventListener("timeupdate", onTimeUpdate);     
+    audio.addEventListener("loadedmetadata", onLoadedMetadata);     
+    audio.addEventListener("ended", onEnded);     
+    return () => {       
+      audio.removeEventListener("timeupdate", onTimeUpdate);       
+      audio.removeEventListener("loadedmetadata", onLoadedMetadata);       
+      audio.removeEventListener("ended", onEnded);     
+    };   
+  }, [playlist, currentTrackIndex, repeatMode, shuffleMode]);   
+
+  useEffect(() => {     
+    if (audioRef.current) {       
+      audioRef.current.volume = isMuted ? 0 : volume;     
+    }   
+  }, [volume, isMuted]);   
+
+  const handleCloudFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {     
+    if (!currentUser) {       
+      setUploadError("Access alert: Establishing secure anonymous account handshake first...");       
+      return;     
+    }     
+    if (!e.target.files || e.target.files.length === 0) return;     
+    
+    // Check Free Tier track upload restrictions
+    const currentUploadsCount = playlist.filter(t => !t.id.startsWith("sample-")).length;
+    if (subscriptionTier !== "paid" && (currentUploadsCount + 1) > 3) {
+      setGlobalPremiumPrompt(`Free Tier is limited to a maximum of 3 track uploads. You currently have ${currentUploadsCount} uploads. Please upgrade to enjoy unlimited high-fidelity track uploads!`);
+      setCurrentView("upgrade");
+      e.target.value = ""; 
+      return;
+    }
+
+    const file = e.target.files[0];     
+    const isAudio = file.type.startsWith("audio/") || file.name.endsWith(".mp3") || file.name.endsWith(".wav");     
+    if (!isAudio) {       
+      setUploadError("Format rejected: Please select a valid audio file (.mp3, .wav).");       
+      return;     
+    }     
+    setUploadError("");     
+    setUploadSuccess("");     
+    setIsUploading(true);     
+    setUploadProgress(0);     
+    try {       
+      const meta = await scanMetadata(file);       
+      let genre = "Bass Head Trap";       
+      const fileLower = file.name.toLowerCase();       
+      if (fileLower.includes("rap") || fileLower.includes("hip") || fileLower.includes("beat")) {         
+        genre = "Hip Hop / Rap";       
+      } else if (fileLower.includes("rock") || fileLower.includes("metal") || fileLower.includes("guitar")) {         
+        genre = "Rock / Metal";       
+      } else if (fileLower.includes("electro") || fileLower.includes("edm") || fileLower.includes("house") || fileLower.includes("dance")) {         
+        genre = "EDM / Electronic";       
+      } else if (fileLower.includes("pop") || fileLower.includes("rnb") || fileLower.includes("vocal")) {         
+        genre = "Pop Vocal";       
+      }       
+      const fileId = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, "_")}`;       
+      const storageRef = ref(storage, `users/${currentUser.uid}/tracks/${fileId}`);       
+      const uploadTask = uploadBytesResumable(storageRef, file);       
+      uploadTask.on(         
+        "state_changed",         
+        (snapshot) => {           
+          const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);           
+          setUploadProgress(progress);         
+        },         
+        (error) => {           
+          console.error("Firebase Storage upload exception occurred:", error);           
+          setUploadError(`Storage upload failed: ${error.message}`);           
+          setIsUploading(false);           
+          setUploadProgress(null);         
+        },         
+        async () => {           
+          try {             
+            const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);             
+            await addDoc(collection(db, "tracks"), {               
+              uid: currentUser.uid,               
+              name: meta.title || file.name.replace(/\.[^/.]+$/, ""),               
+              artist: meta.artist || "Cloud Artist",               
+              album: meta.album || "Cloud Single",               
+              genre: genre,               
+              url: downloadUrl,               
+              storagePath: `users/${currentUser.uid}/tracks/${fileId}`,               
+              createdAt: new Date().toISOString()             
+            });             
+            setUploadSuccess(`Successfully synchronized "${file.name}" to Cloud Storage database!`);             
+            setIsUploading(false);             
+            setUploadProgress(null);           
+          } catch (catalogErr: any) {             
+            handleFirestoreError(catalogErr, OperationType.CREATE, "tracks");             
+            setUploadError(`Failed to save catalog details: ${catalogErr.message || catalogErr}`);             
+            setIsUploading(false);             
+            setUploadProgress(null);           
+          }         
+        }       );     
+    } catch (err: any) {       
+      console.error("General file processing exception:", err);       
+      setUploadError(`Processing error: ${err.message || err}`);       
+      setIsUploading(false);       
+      setUploadProgress(null);     
+    }   
+  };   
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {     
+    if (!e.target.files) return;     
+    const files = Array.from(e.target.files) as File[];          
+    
+    // Check Free Tier track upload restrictions
+    const currentUploadsCount = playlist.filter(t => !t.id.startsWith("sample-")).length;
+    if (subscriptionTier !== "paid" && (currentUploadsCount + files.length) > 3) {
+      setGlobalPremiumPrompt(`Free Tier is limited to a maximum of 3 track uploads. You currently have ${currentUploadsCount} uploads. Please upgrade to enjoy unlimited high-fidelity track uploads!`);
+      setCurrentView("upgrade");
+      e.target.value = ""; 
+      return;
+    }
+
+    const scanPromises = files.map(async (file: File, idx) => {       
+      const meta = await scanMetadata(file);              
+      let genre = "Bass Accent";       
+      const fileLower = file.name.toLowerCase();       
+      if (fileLower.includes("rap") || fileLower.includes("hip") || fileLower.includes("beat")) {         
+        genre = "Hip Hop / Rap";       
+      } else if (fileLower.includes("rock") || fileLower.includes("metal") || fileLower.includes("guitar")) {         
+        genre = "Rock / Metal";       
+      } else if (fileLower.includes("electro") || fileLower.includes("edm") || fileLower.includes("house") || fileLower.includes("dance")) {         
+        genre = "EDM / Electronic";       
+      } else if (fileLower.includes("pop") || fileLower.includes("rnb") || fileLower.includes("vocal")) {         
+        genre = "Pop Vocal";       
+      }              
+      return {         
+        id: `local-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,         
+        name: meta.title,         
+        artist: meta.artist,         
+        album: meta.album,         
+        duration: 0,         
+        file: file,         
+        genre: genre,       } as Track;     
+    });          
+    const newTracks = await Promise.all(scanPromises);          
+    if (newTracks.length > 0) {       
+      const filteredPlaylist = playlist.filter(t => !t.id.startsWith("sample-") || playlist.length > 3);       
+      const updatedList = [...filteredPlaylist, ...newTracks];       
+      setPlaylist(updatedList);              
+      const firstNewIdx = updatedList.indexOf(newTracks[0]);       
+      setCurrentTrackIndex(firstNewIdx);       
+      setIsPlaying(false);       
+      stopSyntheticOsc();     
+    }   
+  };   
+
+  const loadTrackSource = (audio: HTMLAudioElement, track: Track) => {     
+    if (audio.src && audio.src.startsWith("blob:")) {       
+      try {         
+        URL.revokeObjectURL(audio.src);       
+      } catch (err) {         
+        console.warn("Failed to revoke blob URL:", err);       
+      }     
+    }     
+    if (track.url) {       
+      audio.src = track.url;     
+    } else if (track.file) {       
+      audio.src = URL.createObjectURL(track.file);     
+    }   
+  };   
+
+  const handlePlayPause = () => {     
+    ensureEngine();          
+    if (currentTrack?.id.startsWith("sample-")) {       
+      handlePlaySynthetic();       
+      return;     
+    }     
+    if (!audioRef.current) return;     
+    if (isPlaying) {       
+      audioRef.current.pause();       
+      setIsPlaying(false);     
+    } else {       
+      audioRef.current.play()         
+        .then(() => setIsPlaying(true))         
+        .catch(err => {           
+          console.warn("Audio play blocked by browser sandbox gesture restriction. Retrying manually.", err);         
+        });     
+    }   
+  };   
+
+  const handleStop = () => {     
+    stopSyntheticOsc();     
+    setIsPlaying(false);     
+    setSongProgress(0);     
+    if (audioRef.current) {       
+      audioRef.current.pause();       
+      audioRef.current.currentTime = 0;     
+    }   
+  };   
+
+  const handleForwardSearch = () => {     
+    if (currentTrack?.id.startsWith("sample-")) {       
+      setSongProgress((prev) => Math.min(songDuration || 100, prev + 10));       
+      return;     
+    }     
+    if (audioRef.current) {       
+      const target = Math.min(audioRef.current.duration || 0, audioRef.current.currentTime + 10);       
+      audioRef.current.currentTime = target;       
+      setSongProgress(target);     
+    }   
+  };   
+
+  const handleBackwardSearch = () => {     
+    if (currentTrack?.id.startsWith("sample-")) {       
+      setSongProgress((prev) => Math.max(0, prev - 10));       
+      return;     
+    }     
+    if (audioRef.current) {       
+      const target = Math.max(0, audioRef.current.currentTime - 10);       
+      audioRef.current.currentTime = target;       
+      setSongProgress(target);     
+    }   
+  };   
+
+  const handleNextTrack = () => {     
+    if (playlist.length === 0) return;          
+    stopSyntheticOsc();     
+    let nextIdx = currentTrackIndex;     
+    if (shuffleMode) {       
+      nextIdx = Math.floor(Math.random() * playlist.length);     
+    } else {       
+      nextIdx = (currentTrackIndex + 1) % playlist.length;     
+    }     
+    setCurrentTrackIndex(nextIdx);     
+    setIsPlaying(false);     
+    setSongProgress(0);     
+    setTimeout(() => {       
+      const selection = playlist[nextIdx];       
+      if (selection && selection.id.startsWith("sample-")) {         
+        handlePlaySynthetic();       
+      } else {         
+        const audio = audioRef.current;         
+        if (audio && selection) {           
+          loadTrackSource(audio, selection);           
+          ensureEngine();           
+          audio.play()             
+            .then(() => setIsPlaying(true))             
+            .catch(err => console.log("Auto-play next track required visual activation gesture", err));         
+        }       
+      }     
+    }, 120);   
+  };   
+
+  const handlePrevTrack = () => {     
+    if (playlist.length === 0) return;          
+    stopSyntheticOsc();     
+    let prevIdx = currentTrackIndex - 1;     
+    if (prevIdx < 0) prevIdx = playlist.length - 1;     
+    setCurrentTrackIndex(prevIdx);     
+    setIsPlaying(false);     
+    setSongProgress(0);     
+    setTimeout(() => {       
+      const selection = playlist[prevIdx];       
+      if (selection && selection.id.startsWith("sample-")) {         
+        handlePlaySynthetic();       
+      } else {         
+        const audio = audioRef.current;         
+        if (audio && selection) {           
+          loadTrackSource(audio, selection);           
+          ensureEngine();           
+          audio.play()             
+            .then(() => setIsPlaying(true))             
+            .catch(err => console.log(err));         
+        }       
+      }     
+    }, 125);   
+  };   
+
+  const handlePlaySynthetic = () => {     
+    ensureEngine();          
+    stopSyntheticOsc();          
+    const engine = engineRef.current;     
+    if (!engine || !engine.ctx) return;          
+    engine.resume();          
+    const ctx = engine.ctx;     
+    const osc = ctx.createOscillator();     
+    const gainNode = ctx.createGain();          
+    osc.connect(gainNode);     
+    if (engine.analyser) {       
+      gainNode.connect(engine.analyser);     
+    } else {       
+      gainNode.connect(ctx.destination);     
+    }     
+    const selTrack = playlist[currentTrackIndex];     
+    if (!selTrack) return;     
+    setCurrentSyntheticLabel(selTrack.name);          
+    if (selTrack.id === "sample-40hz") {       
+      osc.type = "sine";       
+      osc.frequency.value = 40;       
+      gainNode.gain.setValueAtTime(0.001, ctx.currentTime);       
+      gainNode.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.1);       
+      osc.start();     
+    } else if (selTrack.id === "sample-sweep") {       
+      osc.type = "sine";       
+      osc.frequency.setValueAtTime(25, ctx.currentTime);       
+      osc.frequency.exponentialRampToValueAtTime(130, ctx.currentTime + 10);       
+      setupSweepRefresher(osc, ctx);              
+      gainNode.gain.setValueAtTime(0.001, ctx.currentTime);       
+      gainNode.gain.linearRampToValueAtTime(0.45, ctx.currentTime + 0.08);       
+      osc.start();     
+    } else if (selTrack.id === "sample-heavy") {       
+      osc.type = "triangle";       
+      osc.frequency.setValueAtTime(50, ctx.currentTime);       
+      generateHipHopBassline(osc, gainNode, ctx);       
+      osc.start();     
+    }     
+    setSyntheticOsc(osc);     
+    setSyntheticGain(gainNode);     
+    setIsPlaying(true);     
+    setSongDuration(selTrack.duration);     
+    setSongProgress(0);     
+    const startProgressTime = Date.now();     
+    const tickInterval = setInterval(() => {       
+      if (!osc) {         
+        clearInterval(tickInterval);         
+        return;       
+      }       
+      const elapsed = (Date.now() - startProgressTime) / 1000;       
+      if (elapsed >= selTrack.duration) {         
+        clearInterval(tickInterval);         
+        handleNextTrack();       
+      } else {         
+        setSongProgress(elapsed);       
+      }     
+    }, 200);   
+  };   
+
+  const stopSyntheticOsc = () => {     
+    if (syntheticOsc) {       
+      try {         
+        syntheticOsc.stop();         
+        syntheticOsc.disconnect();       
+      } catch (e) {}       
+      setSyntheticOsc(null);     
+    }     
+    if (syntheticGain) {       
+      try {         
+        syntheticGain.disconnect();       
+      } catch (e) {}       
+      setSyntheticGain(null);     
+    }     
+    setCurrentSyntheticLabel("");   
+  };   
+
+  const setupSweepRefresher = (osc: OscillatorNode, ctx: AudioContext) => {     
+    let tick = 0;     
+    const interval = setInterval(() => {       
+      if (!syntheticOsc || syntheticOsc !== osc) {         
+        clearInterval(interval);         
+        return;       
+      }       
+      tick++;       
+      const currentMultiplier = (tick % 2 === 0) ? 25 : 35;       
+      const targetHz = (tick % 2 === 0) ? 130 : 25;              
+      try {         
+        osc.frequency.setValueAtTime(currentMultiplier, ctx.currentTime);         
+        osc.frequency.exponentialRampToValueAtTime(targetHz, ctx.currentTime + 6);       
+      } catch (e) {         
+        clearInterval(interval);       
+      }     
+    }, 6000);   
+  };   
+
+  const generateHipHopBassline = (osc: OscillatorNode, gain: GainNode, ctx: AudioContext) => {     
+    let beats = 0;     
+    const beatInterval = setInterval(() => {       
+      if (!syntheticOsc || syntheticOsc !== osc) {         
+        clearInterval(beatInterval);         
+        return;       
+      }       
+      beats++;       
+      const time = ctx.currentTime;              
+      try {         
+        osc.frequency.setValueAtTime(120, time);         
+        osc.frequency.exponentialRampToValueAtTime(38, time + 0.3);         
+        gain.gain.setValueAtTime(0.01, time);         
+        gain.gain.linearRampToValueAtTime(0.7, time + 0.05);         
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.55);         
+        if (beats % 4 === 0) {           
+          setTimeout(() => {             
+            if (!syntheticOsc) return;             
+            osc.frequency.setValueAtTime(45, ctx.currentTime);             
+            osc.frequency.linearRampToValueAtTime(41, ctx.currentTime + 0.8);             
+            gain.gain.setValueAtTime(0.01, ctx.currentTime);             
+            gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.1);             
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.25);           
+          }, 600);         
+        }       
+      } catch (e) {         
+        clearInterval(beatInterval);       
+      }     
+    }, 1400);   
+  };   
+
+  const handleSeek = (progressSeconds: number) => {     
+    if (currentTrack?.id.startsWith("sample-")) {       
+      setSongProgress(progressSeconds);       
+      return;     
+    }     
+    if (audioRef.current) {       
+      audioRef.current.currentTime = progressSeconds;       
+      setSongProgress(progressSeconds);     
+    }   
+  };   
+
+  const deleteTrack = async (idx: number, e: React.MouseEvent) => {     
+    e.stopPropagation();     
+    const track = playlist[idx];     
+    if (!track) return;     
+    if (track.id.startsWith("sample-")) {       
+      const updated = [...playlist];       
+      updated.splice(idx, 1);       
+      setPlaylist(updated);       
+      if (currentTrackIndex === idx) {         
+        stopSyntheticOsc();         
+        setIsPlaying(false);         
+        setCurrentTrackIndex(updated.length > 0 ? 0 : -1);       
+      } else if (currentTrackIndex > idx) {         
+        setCurrentTrackIndex(currentTrackIndex - 1);       
+      }       
+      return;     
+    }     
+    try {       
+      await deleteDoc(doc(db, "tracks", track.id));       
+      console.log("Track safely wiped from Firestore:", track.id);       
+      if (currentTrackIndex === idx) {         
+        stopSyntheticOsc();         
+        setIsPlaying(false);         
+        if (audioRef.current) audioRef.current.pause();         
+        setCurrentTrackIndex(-1);       
+      } else if (currentTrackIndex > idx) {         
+        setCurrentTrackIndex(currentTrackIndex - 1);       
+      }     
+    } catch (err) {       
+      handleFirestoreError(err, OperationType.DELETE, `tracks/${track.id}`);     
+    }   
+  };   
+
+  const onPlayTrackById = (trackId: string) => {
+    const idx = playlist.findIndex((t) => t.id === trackId);
+    if (idx === -1) return;
+    stopSyntheticOsc();
+    setCurrentTrackIndex(idx);
+    setIsPlaying(false);
+    setTimeout(() => {
+      const track = playlist[idx];
+      if (track) {
+        if (track.id.startsWith("sample-")) {
+          handlePlaySynthetic();
+        } else {
+          const audio = audioRef.current;
+          if (audio) {
+            loadTrackSource(audio, track);
+            ensureEngine();
+            audio.play()
+              .then(() => setIsPlaying(true))
+              .catch((err) => console.log(err));
+          }
+        }
+      }
+    }, 50);
+  };
+
+  const deleteSelectedTracks = async (trackIds: string[]) => {
+    if (trackIds.length === 0) return;
+    const localIds = trackIds.filter(id => id.startsWith("local-"));
+    const cloudIds = trackIds.filter(id => !id.startsWith("local-") && !id.startsWith("sample-"));
+
+    for (const cid of cloudIds) {
+      try {
+        await deleteDoc(doc(db, "tracks", cid));
+        console.log("Deleted cloud track safely:", cid);
+      } catch (err) {
+        console.error("Failed deleting cloud track:", cid, err);
+      }
+    }
+
+    setPlaylist((prev) => {
+      const remaining = prev.filter(t => !localIds.includes(t.id));
+      const currentPlayingTrack = prev[currentTrackIndex];
+      if (currentPlayingTrack && trackIds.includes(currentPlayingTrack.id)) {
+        stopSyntheticOsc();
+        setIsPlaying(false);
+        if (audioRef.current) audioRef.current.pause();
+        setCurrentTrackIndex(-1);
+      } else if (currentPlayingTrack) {
+        const newIdx = remaining.findIndex(t => t.id === currentPlayingTrack.id);
+        setCurrentTrackIndex(newIdx);
+      }
+      return remaining;
+    });
+  };   
+
+  const handleEqValueChange = (bandIdx: number, newGainDb: number) => {     
+    setSelectedPresetName("Custom Manual Tuning");     
+    const updatedBands = [...dspSettings.eqBands];     
+    updatedBands[bandIdx] = newGainDb;          
+    const updatedSettings = {       
+      ...dspSettings,       
+      eqBands: updatedBands     
+    };          
+    setDspSettings(updatedSettings);          
+    if (engineRef.current) {       
+      engineRef.current.setEqBand(bandIdx, newGainDb);     
+    }   
+  };   
+
+  const handleBassKnobChange = (newLevel: number) => {     
+    setSelectedPresetName("Custom Manual Tuning");     
+    setIsMaxBass(newLevel >= 100);          
+    const updatedSettings = {       
+      ...dspSettings,       
+      bassBoost: newLevel     
+    };     
+    setDspSettings(updatedSettings);     
+    if (engineRef.current) {       
+      engineRef.current.setBassBoost(newLevel);     
+    }   
+  };   
+
+  const toggleMaxBass = () => {     
+    ensureEngine();          
+    if (isMaxBass) {       
+      setIsMaxBass(false);       
+      handleBassKnobChange(50.0);     
+    } else {       
+      setIsMaxBass(true);       
+      handleBassKnobChange(100.0);       
+      setShowAtomicExplosion(true);              
+      if (typeof window !== "undefined" && window.navigator && typeof window.navigator.vibrate === "function") {         
+        window.navigator.vibrate([150, 50, 300, 50, 400, 50, 500, 50, 450]);       
+      }       
+      setTimeout(() => {         
+        setShowAtomicExplosion(false);       
+      }, 2200);              
+      const updatedBands = [...dspSettings.eqBands];       
+      updatedBands[0] = 12;              
+      const updatedSettings = {         
+        ...dspSettings,         
+        eqBands: updatedBands,         
+        bassBoost: 100.0       
+      };       
+      setDspSettings(updatedSettings);              
+      if (engineRef.current) {         
+        engineRef.current.setEqBand(0, 12);         
+        engineRef.current.setBassBoost(100.0);       
+      }     
+    }   
+  };   
+
+  const applyAudioPreset = (preset: Preset) => {     
+    if (preset.isPremium && subscriptionTier !== "paid") {
+      setGlobalPremiumPrompt(`The custom EQ Preset '${preset.name}' is a premium feature. Upgrade to unlock high-fidelity sound-engineering presets!`);
+      setCurrentView("upgrade");
+      return;
+    }
+    ensureEngine();     
+    setSelectedPresetName(preset.name);     
+    setIsMaxBass(preset.bassBoost >= 95);     
+    const updatedSettings = {       
+      ...dspSettings,       
+      eqBands: [...preset.eqBands],       
+      bassBoost: preset.bassBoost,       
+      reverbWet: preset.reverbWet,       
+      delayOffsetMs: preset.delayOffsetMs     
+    };     
+    setDspSettings(updatedSettings);     
+    if (engineRef.current) {       
+      engineRef.current.applyDspSettings(updatedSettings);     
+    }   
+  };   
+
+  const resetAllFlat = () => {     
+    applyAudioPreset(BUILTIN_PRESETS[0]);   
+  };   
+
+  const handleAiOptimize = async () => {     
+    if (subscriptionTier !== "paid") {
+      setGlobalPremiumPrompt("AI Cabin Audio Frequency Optimization & Acoustic Calibration is a premium feature. Upgrade to achieve maximum acoustic clarity and remaster your studio files!");
+      setCurrentView("upgrade");
+      return;
+    }
+    ensureEngine();     
+    setIsOptimizing(true);          
+    try {       
+      const activeName = currentTrack ? currentTrack.name : "Cabin Test Beat";       
+      const activeGenre = currentTrack ? currentTrack.genre : "Dynamic Acoustic";       
+      const response = await fetch("/api/optimize", {         
+        method: "POST",         
+        headers: { "Content-Type": "application/json" },         
+        body: JSON.stringify({           
+          songTitle: activeName,           
+          genre: activeGenre,           
+          vehicleType: vehicleInfo.vehicleType,           
+          subwooferConfig: vehicleInfo.subwooferConfig,           
+          soundPreference: vehicleInfo.soundPreference         
+        })       });       
+      if (!response.ok) throw new Error("DSP Optimization query failed from server API");       
+      const optimalSettings: DspSettings & { success: boolean, isFallback?: boolean } = await response.json();              
+      if (optimalSettings.success) {         
+        const scaledBassBoost = (optimalSettings.bassBoost || 0) * 10;         
+        const finalSettings = {           
+          eqBands: optimalSettings.eqBands,           
+          bassBoost: scaledBassBoost,           
+          reverbWet: optimalSettings.reverbWet,           
+          delayOffsetMs: optimalSettings.delayOffsetMs,           
+          highPassFilterHz: optimalSettings.highPassFilterHz,           
+          subCrossoverHz: optimalSettings.subCrossoverHz,           
+          justification: optimalSettings.justification         
+        };         
+        setDspSettings(finalSettings);         
+        setSelectedPresetName("AI Optimized DSP Profile");         
+        setIsMaxBass(scaledBassBoost >= 95);         
+        if (engineRef.current) {           
+          engineRef.current.applyDspSettings(finalSettings);         
+        }       
+      }     
+    } catch (err) {       
+      console.error("AI DSP Optimization error: ", err);     
+    } finally {       
+      setIsOptimizing(false);     
+    }   
+  };   
+
+  const formatTime = (secs: number) => {     
+    const m = Math.floor(secs / 60);     
+    const s = Math.floor(secs % 60);     
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;   
+  };   
+
+  useEffect(() => {     
+    return () => {       
+      stopSyntheticOsc();     
+    };   
+  }, []);   
+
+  const glassShards = useMemo(() => {     
+    const count = 36;     
+    const clipPaths = [       
+      "polygon(10% 0%, 100% 20%, 80% 90%, 0% 70%)",       
+      "polygon(50% 0%, 100% 100%, 0% 80%)",       
+      "polygon(0% 15%, 90% 0%, 100% 85%, 15% 100%)",       
+      "polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%)",       
+      "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)"     
+    ];     
+    return Array.from({ length: count }).map((_, i) => {       
+      const angle = (i / count) * 2 * Math.PI + (Math.random() * 0.35 - 0.175);       
+      const distPercent = i % 2 === 0 ? 0.3 : 0.8;       
+      const distance = (100 + Math.random() * 480) * (distPercent + 0.4);       
+      const tx = Math.cos(angle) * distance;       
+      const ty = Math.sin(angle) * distance;       
+      const rot = Math.floor(Math.random() * 800 - 400);        
+      const width = Math.floor(Math.random() * 18 + 7);       
+      const height = Math.floor(Math.random() * 25 + 8);       
+      const delay = (Math.random() * 0.16).toFixed(3);       
+      const clipPath = clipPaths[i % clipPaths.length];       
+      return {         
+        id: i,         
+        width: `${width}px`,         
+        height: `${height}px`,         
+        clipPath,         
+        delay: `${delay}s`,         
+        tx: `${tx}px`,         
+        ty: `${ty}px`,         
+        rot: `${rot}deg`       
+      };     
+    });   
+  }, [showAtomicExplosion]);   
+
+  return (     
+    <div id="app-container" className={`min-h-screen candy-paint-body text-slate-100 flex flex-col font-sans select-none overflow-x-hidden ${showAtomicExplosion ? "atomic-shaking" : ""}`}>              
+      {showAtomicExplosion && (         
+        <div className="fixed inset-0 z-[9999] pointer-events-none overflow-hidden">           
+          <div className="absolute inset-0 animate-atomic-flash" />           
+          <div className="absolute top-1/2 left-1/2 w-0 h-0">             
+            <div className="absolute w-[250px] h-[250px] rounded-full animate-atomic-fireball" />                          
+            <div className="absolute w-[320px] h-[320px] rounded-full border-[12px] border-white/95 animate-atomic-shockwave-1" />             
+            <div className="absolute w-[320px] h-[320px] rounded-full border-[8px] border-sky-100/90 animate-atomic-shockwave-2" />             
+            <div className="absolute w-[320px] h-[320px] rounded-full border-[4px] border-sky-200/75 animate-atomic-shockwave-3" />             
+            <div className="absolute w-[320px] h-[320px] rounded-full border-[2px] border-white/60 animate-atomic-shockwave-4" />             
+            {glassShards.map((shard) => (               
+              <div                 
+                key={shard.id}                 
+                className="glass-shard"                 
+                style={{                   
+                  width: shard.width,                   
+                  height: shard.height,                   
+                  clipPath: shard.clipPath,                   
+                  animationDelay: shard.delay,                   
+                  "--tx": shard.tx,                   
+                  "--ty": shard.ty,                   
+                  "--rot": shard.rot,                 } as React.CSSProperties}               
+              />             
+            ))}           
+          </div>           
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-transparent">             
+            <div className="text-center p-6 bg-slate-950/95 border-2 border-white/90 rounded-2xl shadow-[0_0_50px_rgba(255,255,255,0.65)] transform scale-110 duration-200">               
+              <span className="text-[10px] font-mono font-black text-sky-400 uppercase tracking-widest block mb-1">                   
+                DANGER: SUB-WARP OVERLOAD                
+              </span>               
+              <h2 className="text-xl font-mono font-black text-white uppercase tracking-widest animate-pulse">                 
+                ATOMIC BASS BLAST!               
+              </h2>               
+              <span className="text-[10px] font-mono text-slate-400 block mt-1 uppercase font-bold">                 
+                SUBWOOFER GAIN BOOSTED 100%               
+              </span>             
+            </div>           
+          </div>         
+        </div>       
+      )}       
+      <audio ref={audioRef} className="hidden" crossOrigin="anonymous" />       
+      {authLoading ? (
+        <div id="auth-loading-screen" className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col justify-center items-center min-h-screen relative z-30">
+          <div className="text-center p-8 bg-[#020512]/95 border-2 border-sky-500/80 rounded-[2rem] shadow-[0_0_50px_rgba(58,219,255,0.25)] max-w-sm w-full mx-auto select-none backdrop-blur-md">
+            <div className="flex justify-center mb-6 animate-pulse">
+              <Logo className="h-10 w-auto object-contain drop-shadow-[0_2px_12px_rgba(58,219,255,0.25)]" />
+            </div>
+            
+            <div className="flex items-center justify-center gap-3 mt-4 mb-2">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3adbff] opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-[#3adbff]"></span>
+              </span>
+              <span className="text-[10px] font-mono font-black text-sky-450 uppercase tracking-widest">
+                VERIFYING SECURE SESSION
+              </span>
+            </div>
+            
+            <p className="text-[9px] font-mono text-slate-400 uppercase mt-1 leading-relaxed">
+              Establishing digital handshake...
+            </p>
+          </div>
+        </div>
+      ) : !isLoggedIn ? (
+        <AuthView auth={auth} onSuccess={() => { setIsLoggedIn(true); setCurrentView("player"); }} onBack={() => {}} />
+      ) : (
+        <>
+          {currentView === "landing" && (         
+        <div className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col justify-between items-center relative min-h-screen">                      
+          <div className="absolute top-4 right-4 z-50">             
+            <button               
+              onClick={() => {                 
+                if (currentUser) setCurrentView("player");                 
+                else setCurrentView("auth");               
+              }}               
+              className="px-4 py-2 hover:brightness-110 active:scale-95 duration-100 transition-all font-mono text-[10px] font-black tracking-widest uppercase rounded-lg border-2 border-sky-400 bg-sky-950/40 text-sky-300 shadow-[0_0_15px_rgba(58,219,255,0.35)] cursor-pointer flex items-center gap-1"             
+            >               
+              {currentUser ? "Enter App" : "Log In"} <span className="text-xs"> </span>             
+            </button>           
+          </div>           
+          <div className="my-auto flex flex-col items-center justify-center text-center w-full max-w-md py-6">                          
+            <div className="relative p-4 rounded-3xl bg-gradient-to-br from-[#020512]/80 to-[#101935]/50 border-2 border-sky-800/40 shadow-[0_25px_60px_rgba(0,0,0,0.95)] flex items-center justify-center w-full max-w-[380px] mx-auto high-gloss-reflection mb-8">               
+              <Logo className="w-full h-auto object-contain drop-shadow-[0_2px_20px_rgba(58,219,255,0.35)]" />             
+            </div>             
+            <h1 className="text-base md:text-lg font-bold font-mono tracking-wider text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-400 uppercase leading-snug drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] px-2">               
+              Music Player and AI audio optimizer and enhancement             
+            </h1>             
+            <div className="w-16 h-1 bg-[#3adbff] rounded-full my-6 shadow-[0_0_12px_#3adbff] opacity-80" />             
+            <p className="text-[11px] font-mono text-slate-300 leading-relaxed bg-slate-950/65 p-6 rounded-2xl border border-slate-900/80 shadow-[0_15px_30px_rgba(0,0,0,0.4)] text-justify tracking-wide">               
+              Upload and listen to your music, 5 band equalizer and bass booster. Optimize your sound quality specially designed for car audio (oem or custom). Upgrade for AI audio enhancement to take listening to the next level.             
+            </p>             
+            <button               
+              onClick={() => {                 
+                if (currentUser) setCurrentView("player");                 
+                else setCurrentView("auth");               
+              }}               
+              className="mt-8 px-6 py-3 rounded-xl font-mono text-xs font-black tracking-widest uppercase cursor-pointer select-none bg-gradient-to-b from-[#1f2433] to-[#010309] border-2 border-blue-500/80 text-[#3adbff] shadow-[0_0_20px_rgba(58,219,255,0.25)] hover:from-blue-600 hover:to-blue-900 hover:text-white hover:border-white hover:shadow-[0_0_30px_rgba(58,219,255,0.5)] active:scale-95 duration-100 transition-all flex items-center gap-2"             
+            >               
+              Listen Now             
+            </button>           
+          </div>           
+          <footer className="w-full text-center mt-auto pt-6 border-t border-slate-900/60 flex flex-col sm:flex-row items-center justify-center gap-3 text-[9px] font-mono text-slate-400 uppercase tracking-wider pb-2">             
+            <span className="opacity-60 text-[8px]">  2026 thumplayer.ai</span>             
+            <span className="hidden sm:inline text-slate-800">|</span>             
+            <div className="flex gap-4">               
+              <button onClick={() => setCurrentView("privacy")} className="hover:text-[#3adbff] transition-colors cursor-pointer underline decoration-dotted underline-offset-4">                 
+                Privacy Policy               
+              </button>               
+              <button onClick={() => setCurrentView("agreement")} className="hover:text-[#3adbff] transition-colors cursor-pointer underline decoration-dotted underline-offset-4">                 
+                User Agreements               
+              </button>             
+            </div>           
+          </footer>         
+        </div>       
+      )}       
+      {currentView === "privacy" && (         
+        <div className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col min-h-screen justify-between relative">                      
+          <div className="my-auto max-w-md mx-auto w-full flex flex-col gap-5 py-6">             
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-3">               
+              <div className="p-2 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30">                 
+                <Info className="w-4.5 h-4.5" />               
+              </div>               
+              <div>                 
+                <h1 className="text-sm font-bold font-mono tracking-widest text-[#3adbff] uppercase">                   
+                  Privacy Policy                 
+                </h1>                 
+                <p className="text-[7.5px] font-mono text-slate-500 uppercase mt-0.5">Placeholder Host: https://thumplayer.ai/privacy-policy</p>               
+              </div>             
+            </div>             
+            <div className="text-[10.5px] font-mono text-slate-300/90 leading-relaxed bg-slate-950/75 border border-slate-900 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 overflow-y-auto max-h-[350px]">               
+              <p className="font-extrabold text-white text-[11px] border-b border-slate-800 pb-1">1. SECURE LOCAL AUDIO DATA HANDSHAKES</p>               
+              <p>thumplayer.ai respects your personal audio content. All loaded MP3, WAV or track collections are handled entirely client-side using the local browser Web Audio API environment or cached securely using high-speed IndexedDB and LocalStorage wrappers.</p>               
+              <p>We do not transfer, harvest, or index your original music audio byte data to any unauthorized external databases.</p>               
+              <p className="font-extrabold text-white text-[11px] border-b border-slate-800 pb-1">2. ANONYMOUS HANDSHAKE TRACKING</p>               
+              <p>When synced to Cloud Storage catalog, persistent metadata pointers (such as track filename, length, upload timestamps) are saved in a sandboxed, anonymous Firestore directory matching your temporary profile credential key.</p>               
+              <p>This ensures that your playlist catalog stays fully synchronized without requiring any confidential tracking telemetry.</p>               
+              <p className="font-extrabold text-white text-[11px] border-b border-slate-800 pb-1">3. THIRD-PARTY DISCLOSURES & INTEGRATION</p>               
+              <p>Our services do not deploy any hidden analytical cookies, tracker pixels, or secondary telemetry systems. The workspace runs inside an isolated container with zero secondary data harvesting policies.</p>             
+            </div>             
+            <button               
+              onClick={() => setCurrentView("landing")}               
+              className="mt-4 px-6 py-2.5 rounded-xl font-mono text-[10px] font-black tracking-widest text-center uppercase cursor-pointer select-none bg-slate-900 border border-slate-800 hover:border-slate-500 text-slate-300 hover:text-white transition-all transform hover:scale-102 active:scale-95"             
+            >                 
+              Return to Home View             
+            </button>           
+          </div>           
+          <footer className="w-full text-center mt-auto pt-6 text-[8px] font-mono text-slate-500 uppercase tracking-widest">             
+            Placeholder Host Domain: https://thumplayer.ai           
+          </footer>         
+        </div>       
+      )}       
+      {currentView === "agreement" && (         
+        <div className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col min-h-screen justify-between relative">                      
+          <div className="my-auto max-w-md mx-auto w-full flex flex-col gap-5 py-6">             
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-3">               
+              <div className="p-2 rounded-xl bg-orange-650/15 text-orange-400 border border-orange-500/30">                 
+                <AlertTriangle className="w-4.5 h-4.5" />               
+              </div>               
+              <div>                 
+                <h1 className="text-sm font-bold font-mono tracking-widest text-[#3adbff] uppercase">                   
+                  User Agreements                 
+                </h1>                 
+                <p className="text-[7.5px] font-mono text-slate-500 uppercase mt-0.5">Placeholder Host: https://thumplayer.ai/user-agreement</p>               
+              </div>             
+            </div>             
+            <div className="text-[10.5px] font-mono text-slate-300/90 leading-relaxed bg-[#020512]/90 border border-slate-800/80 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 overflow-y-auto max-h-[350px]">               
+              <p className="font-extrabold text-white text-[11px] border-b border-slate-800 pb-1">1. INTENT OF APP USE</p>               
+              <p>By booting the thumplayer.ai digital sound processing (DSP) environment, you acquire a non-transferable runtime access license to optimize local and synchronized audio files inside your container.</p>               
+              <p className="font-extrabold text-red-400 text-[11px] border-b border-slate-850 pb-1">2. SUBWOOFER CLIPPING & COMP BASS WARNING</p>               
+              <p className="text-red-300">THUMPLAYER.AI CONTAINS HIGH-GAIN ANALOG-EMULATED BASS BOOST GAIN CONTROLS & AN ATOMIC MAX BASS SHOCKWAVE SWITCH capable of severe SPL output swings. BY AGREEMENT, USER TAKES FULL RESPONSIBILITY FOR SOUND INTENSITY AND SPEAKER RIG HARDWARE DAMAGE FROM OVER-EXCURSION OR CLIPPING.</p>               
+              <p className="font-extrabold text-white text-[11px] border-b border-slate-800 pb-1">3. CLOUD DEPLOYMENTS & DOMAIN HANDSHAKES</p>               
+              <p>All domain handshakes, local port mappings, and external proxies configured on custom server points are operated under strict local sandbox policies. thumplayer.ai delivers services "as-is" without secondary liabilities.</p>             
+            </div>             
+            <button               
+              onClick={() => setCurrentView("landing")}               
+              className="mt-4 px-6 py-2.5 rounded-xl font-mono text-[10px] font-black tracking-widest text-center uppercase cursor-pointer select-none bg-slate-900 border border-slate-800 hover:border-slate-500 text-slate-300 hover:text-white transition-all transform hover:scale-102 active:scale-95"             
+            >                 
+              Return to Home View             
+            </button>           
+          </div>           
+          <footer className="w-full text-center mt-auto pt-6 text-[8px] font-mono text-slate-500 uppercase tracking-widest">             
+            Placeholder Host Domain: https://thumplayer.ai           
+          </footer>         
+        </div>       
+      )}       
+          {(currentView === "player" || currentView === "mymusic" || currentView === "upgrade") && (         
+        <>           
+          <AnimatePresence>
+            {isOpen && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.6 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsOpen(false)}
+                className="fixed inset-0 bg-black/80 z-[1000] backdrop-blur-xs"
+              />
+            )}
+          </AnimatePresence>
+
+          <header id="app-header" className="sticky top-0 z-[1050] bg-[#020512]/95 backdrop-blur-md border-b-2 border-slate-600/85 px-4 py-2 flex items-center justify-between high-gloss-reflection">             
+            <div className="flex items-center gap-2">               
+              {/* Hamburger drop-down menu */}
+              <div className="relative z-[1100]">
+                <button
+                  id="hamburger-menu-btn"
+                  onClick={toggleMenu}
+                  className={`p-1.5 px-2.5 rounded-lg border flex items-center justify-center transition-all duration-150 cursor-pointer ${
+                    isOpen
+                      ? "bg-[#3adbff]/10 border-[#3adbff]/80 text-[#3adbff] shadow-[0_0_10px_rgba(58,219,255,0.25)]"
+                      : "bg-[#0b0f19] border-slate-800 text-slate-400 hover:text-[#3adbff] hover:border-[#3adbff]/30"
+                  }`}
+                  title="Open Menu"
+                >
+                  {isOpen ? <X className="w-3.5 h-3.5" /> : <Menu className="w-3.5 h-3.5" />}
+                </button>
+
+                <AnimatePresence>
+                  {isOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                      transition={{ duration: 0.15, ease: "easeOut" }}
+                      className="absolute left-0 mt-2 w-48 rounded-xl bg-gradient-to-br from-white via-slate-200 to-zinc-400 border-2 border-slate-400 shadow-[0_15px_40px_rgba(0,0,0,0.65),_inset_0_2px_4px_rgba(255,255,255,1),_inset_0_-2px_4px_rgba(0,0,0,0.15)] z-50 z-[1100] overflow-hidden flex flex-col p-1.5"
+                    >
+                      <button
+                        onClick={() => {
+                          setCurrentView("player");
+                          setIsOpen(false);
+                        }}
+                        className={`w-full text-left font-mono font-extrabold uppercase tracking-wider text-[10px] px-3.5 py-2.5 rounded-lg flex items-center gap-2 transition-all duration-100 text-[#031b4e] hover:bg-slate-300/80 border border-transparent ${
+                          currentView === "player" ? "bg-slate-300/60 border-slate-400/50 shadow-inner" : ""
+                        }`}
+                      >
+                        <Music className="w-3.5 h-3.5 text-[#031b4e]" />
+                        ThumpPlayer
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setCurrentView("mymusic");
+                          setIsOpen(false);
+                        }}
+                        className={`w-full text-left font-mono font-extrabold uppercase tracking-wider text-[10px] px-3.5 py-2.5 rounded-lg flex items-center gap-2 transition-all duration-100 text-[#031b4e] hover:bg-slate-300/80 border border-transparent ${
+                          currentView === "mymusic" ? "bg-slate-300/60 border-slate-400/50 shadow-inner" : ""
+                        }`}
+                      >
+                        <Upload className="w-3.5 h-3.5 text-[#031b4e]" />
+                        My Music
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setCurrentView("upgrade");
+                          setIsOpen(false);
+                        }}
+                        className={`w-full text-left font-mono font-extrabold uppercase tracking-wider text-[10px] px-3.5 py-2.5 rounded-lg flex items-center gap-2 transition-all duration-100 text-[#031b4e] hover:bg-slate-300/80 border border-transparent ${
+                          currentView === "upgrade" ? "bg-slate-300/60 border-slate-400/50 shadow-inner" : ""
+                        }`}
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-[#031b4e]" />
+                        Upgrade
+                      </button>
+
+                      <div className="border-t border-slate-400/40 my-1 mx-1" />
+                      <button
+                        onClick={async () => {
+                          try {
+                            await signOut(auth);
+                          } catch (err) {
+                            console.error("Error signing out:", err);
+                          }
+                          setIsOpen(false);
+                          setCurrentView("landing");
+                        }}
+                        className="w-full text-left font-mono font-extrabold uppercase tracking-wider text-[10px] px-3.5 py-2.5 rounded-lg flex items-center gap-2 transition-all duration-100 text-red-800 hover:bg-red-500/15 border border-transparent"
+                      >
+                        <LogOut className="w-3.5 h-3.5 text-red-800" />
+                        Sign Out
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>             
+            <div className="flex items-center justify-center flex-1 pr-6">               
+              <Logo className="h-10 md:h-12 w-auto object-contain drop-shadow-[0_2px_8px_rgba(0,240,255,0.15)]" />             
+            </div>           
+          </header>           
+          <main id="main-workbench" className="flex-1 w-full max-w-xl mx-auto px-4 py-6 flex flex-col gap-6 items-stretch">                          
+            {currentView === "player" && (
+              <>
+                <DoubleDinPlayer               
+                  currentTrack={currentTrack}               
+                  isPlaying={isPlaying}               
+                  songProgress={songProgress}               
+                  songDuration={songDuration}               
+                  volume={volume}               
+                  shuffleMode={shuffleMode}               
+                  onPlayPause={handlePlayPause}               
+                  onStop={handleStop}               
+                  onPrev={handlePrevTrack}               
+                  onNext={handleNextTrack}               
+                  onSeek={handleSeek}               
+                  onVolumeChange={setVolume}               
+                  onToggleShuffle={() => setShuffleMode(!shuffleMode)}               
+                  headunitTime={headunitTime}               
+                  isMaxBass={isMaxBass}               
+                  onToggleMaxBass={toggleMaxBass}             
+                />             
+
+                <section className="flex flex-col gap-6">                              
+                  <div className="bg-slate-950/20 p-5 rounded-2xl flex flex-col items-center relative overflow-hidden">                 
+                    <div className="absolute top-0 right-0 p-1 bg-red-650 font-mono text-[7px] text-white font-black uppercase tracking-widest leading-none rotate-45 translate-x-3.5 translate-y-1 z-10 w-20 text-center select-none shadow animate-pulse">                   
+                      WARNING                 
+                    </div>                 
+                    <h3 className="font-mono text-[11px] font-black uppercase tracking-widest text-[#cbd5e1] mb-6 flex items-center gap-1.5 z-10 chrome-text">                   
+                      <Activity className="w-3.5 h-3.5 text-blue-500 animate-pulse" />                   
+                      Slammer Bass Booster                 
+                    </h3>                 
+                    <BassKnob value={dspSettings.bassBoost} onChange={handleBassKnobChange} disabled={isMaxBass} />               
+                  </div>               
+                  <EqSliders                 
+                    gains={dspSettings.eqBands}                 
+                    onChange={handleEqValueChange}                 
+                    onReset={resetAllFlat}                 
+                    presets={BUILTIN_PRESETS}                 
+                    selectedPresetName={selectedPresetName}                 
+                    onPresetSelect={applyAudioPreset}               
+                    isPremiumActive={subscriptionTier === "paid"}
+                  />             
+                </section>             
+              </>
+            )}
+
+            {currentView === "mymusic" && (
+              <MyMusicView
+                playlist={playlist}
+                currentTrackIndex={currentTrackIndex}
+                isPlaying={isPlaying}
+                currentUser={currentUser}
+                isUploading={isUploading}
+                uploadProgress={uploadProgress}
+                uploadError={uploadError}
+                uploadSuccess={uploadSuccess}
+                handleFileUpload={handleFileUpload}
+                handleCloudFileUpload={handleCloudFileUpload}
+                deleteSelectedTracks={deleteSelectedTracks}
+                onPlayTrackById={onPlayTrackById}
+                setUploadError={setUploadError}
+                setUploadSuccess={setUploadSuccess}
+              />
+            )}
+
+            {currentView === "upgrade" && (
+              <UpgradeView 
+                onBackToPlayer={() => {
+                  setCurrentView("player");
+                  setGlobalPremiumPrompt("");
+                }} 
+                subscriptionTier={subscriptionTier}
+                onChangeSubscriptionTier={handleSubscriptionTierChange}
+                globalPremiumPrompt={globalPremiumPrompt}
+              />
+            )}
+          </main>         
+        </>       
+      )}     
+        </>
+      )}
+    </div>   
+  ); 
+}

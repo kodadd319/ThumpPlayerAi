@@ -1,0 +1,41 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile config and UI settings",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "accentTheme": { "type": "string" },
+        "lastLogin": { "type": "string" }
+      },
+      "required": ["uid"]
+    },
+    "Track": {
+      "title": "Track",
+      "description": "Music track index reference pointing to persistent Cloud Storage assets",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "artist": { "type": "string" },
+        "album": { "type": "string" },
+        "genre": { "type": "string" },
+        "url": { "type": "string" },
+        "storagePath": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "name", "url"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile settings document keyed by user unique ID"
+    },
+    "/tracks/{trackId}": {
+      "schema": "Track",
+      "description": "Uploader tracks directory referenced to query matching uid"
+    }
+  }
+}
