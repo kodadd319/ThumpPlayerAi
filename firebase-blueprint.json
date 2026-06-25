@@ -2,12 +2,23 @@
   "entities": {
     "User": {
       "title": "User",
-      "description": "User profile config and UI settings",
+      "description": "User profile config, vehicle info, and audio/DSP synthesizer configurations",
       "type": "object",
       "properties": {
         "uid": { "type": "string" },
         "accentTheme": { "type": "string" },
-        "lastLogin": { "type": "string" }
+        "lastLogin": { "type": "string" },
+        "volume": { "type": "number" },
+        "isMuted": { "type": "boolean" },
+        "repeatMode": { "type": "string" },
+        "shuffleMode": { "type": "boolean" },
+        "subscriptionTier": { "type": "string" },
+        "currentTrackId": { "type": "string" },
+        "selectedPresetName": { "type": "string" },
+        "isMaxBass": { "type": "boolean" },
+        "vehicleInfo": { "type": "object" },
+        "dspSettings": { "type": "object" },
+        "updatedAt": { "type": "string" }
       },
       "required": ["uid"]
     },

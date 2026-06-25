@@ -103,11 +103,11 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
       const activeFlex = normalizedSub * (1.1 + bassBoostFactor * 0.9);
 
       // Clear with elegant slight opacity to leave glowing trails
-      ctx.fillStyle = "rgba(10, 10, 12, 0.22)";
+      ctx.fillStyle = "rgba(10, 5, 4, 0.22)";
       ctx.fillRect(0, 0, W, H);
 
-      // Draw standard glowing subtle grid background for car audio dash feel
-      ctx.strokeStyle = "rgba(30, 41, 59, 0.15)";
+      // Draw standard glowing subtle grid background for elite cabin feel
+      ctx.strokeStyle = "rgba(212, 175, 55, 0.05)";
       ctx.lineWidth = 1;
       const gridSize = 40 * window.devicePixelRatio;
       for (let x = 0; x < W; x += gridSize) {
@@ -124,8 +124,8 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
       }
 
       const activeColor = isMaxBass 
-        ? "rgb(239, 68, 68)" // Warning red in max bass
-        : "rgb(5, 50, 240)"; // Premium Hyper-Candy Royal Blue default
+        ? "rgb(153, 27, 27)" // Deep Cherry Burgundy
+        : "rgb(212, 175, 55)"; // Champagne Gold
 
       if (visualMode === "rta") {
         // --- 1. RTA HEAD UNIT METER ---
@@ -166,14 +166,14 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
             const ledY = H - 15 - (j * (ledHeight + ledGap));
             if (ledY < y) break;
 
-            // Segment color scheme: custom cobalt to icy-blue, with red warning clip at top
-            let color = "rgba(5, 50, 240, 0.95)"; // Deep cobalt-blue bottom
+            // Segment color scheme: custom amber gold, with warning mahogany red clip at top
+            let color = "rgba(139, 92, 26, 0.95)"; // Brassy gold bottom
             if (j > totalLEDs * 0.85) {
-              color = "rgba(239, 68, 68, 0.95)"; // Red clips
+              color = "rgba(153, 27, 27, 0.95)"; // Cherry burgundy clip
             } else if (j > totalLEDs * 0.6) {
-              color = "rgba(255, 255, 255, 0.95)"; // Shiny white chrome accent
+              color = "rgba(255, 255, 255, 0.95)"; // Piano white highlight
             } else if (j > totalLEDs * 0.35) {
-              color = "rgba(58, 219, 255, 0.95)"; // Bright high-shining electric baby blue
+              color = "rgba(212, 175, 55, 0.95)"; // Shining Champagne Gold
             }
 
             ctx.fillStyle = color;
@@ -216,14 +216,14 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
           ctx.translate(shakeX, shakeY);
         }
 
-        // Draw Subwoofer Outer Enclosure Ring - High Chrome Polish
+        // Draw Subwoofer Outer Enclosure Ring - High Chrome Polish Bezel
         const chromeEncl = ctx.createLinearGradient(centerX - maxRadius, centerY - maxRadius, centerX + maxRadius, centerY + maxRadius);
         chromeEncl.addColorStop(0, "#ffffff");
-        chromeEncl.addColorStop(0.2, "#cfd8dc");
-        chromeEncl.addColorStop(0.4, "#455a64");
-        chromeEncl.addColorStop(0.5, "#eceff1");
-        chromeEncl.addColorStop(0.6, "#263238");
-        chromeEncl.addColorStop(0.8, "#90a4ae");
+        chromeEncl.addColorStop(0.2, "#cbd5e1");
+        chromeEncl.addColorStop(0.4, "#475569");
+        chromeEncl.addColorStop(0.5, "#f1f5f9");
+        chromeEncl.addColorStop(0.6, "#1e293b");
+        chromeEncl.addColorStop(0.8, "#94a3b8");
         chromeEncl.addColorStop(1, "#ffffff");
 
         ctx.strokeStyle = chromeEncl;
@@ -232,7 +232,7 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
         ctx.arc(centerX, centerY, maxRadius, 0, Math.PI * 2);
         ctx.stroke();
 
-        // Outer LED Halo ring - Deep Candy blue or warning red
+        // Outer LED Halo ring - Deep Amber gold or warning burgundy
         ctx.strokeStyle = activeColor;
         ctx.lineWidth = (2 + activeFlex * 7) * window.devicePixelRatio;
         ctx.shadowBlur = isMaxBass ? 25 : 12;
@@ -244,15 +244,15 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
         // Reset blur for inside cone elements
         ctx.shadowBlur = 0;
 
-        // Draw deep shiny piano-black cone surround
+        // Draw deep shiny mahogany red-black wood lacquer cone surround
         const surroundGradient = ctx.createRadialGradient(
           centerX, centerY, maxRadius * 0.5,
           centerX, centerY, maxRadius * 0.95
         );
-        surroundGradient.addColorStop(0, "rgba(5, 10, 25, 1)");
-        surroundGradient.addColorStop(0.5, "rgba(1, 2, 8, 1)");
-        surroundGradient.addColorStop(0.85, "rgba(10, 30, 90, 1)"); // Dark Candy lacquer blue shadow
-        surroundGradient.addColorStop(1, "#ffffff"); // chrome hyper silver edge
+        surroundGradient.addColorStop(0, "rgba(20, 10, 5, 1)");
+        surroundGradient.addColorStop(0.5, "rgba(5, 2, 2, 1)");
+        surroundGradient.addColorStop(0.85, "rgba(45, 15, 15, 1)"); // Deep polished mahogany red-black reflection
+        surroundGradient.addColorStop(1, "#f3efe0"); // luxurious chrome/gold edge
         
         ctx.fillStyle = surroundGradient;
         ctx.beginPath();
@@ -292,15 +292,15 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
         ctx.stroke();
 
         // Subwoofer Brand logo stamp (glowing steel lines matching bass level)
-        ctx.font = `black ${Math.round(20 * flexScale * window.devicePixelRatio)}px monospace`;
+        ctx.font = `600 ${Math.round(18 * flexScale * window.devicePixelRatio)}px sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillStyle = "rgb(15, 23, 42)";
-        ctx.fillText("THUMP_15", centerX, centerY);
+        ctx.fillStyle = "rgb(28, 15, 12)";
+        ctx.fillText("ELITE_900", centerX, centerY);
 
-        // Draw expanding blue acoustic compression pressure waves
+        // Draw expanding gold acoustic compression pressure waves
         if (activeFlex > 0.4) {
-          ctx.strokeStyle = `rgba(${isMaxBass ? "239, 68, 68" : "13, 75, 242"}, ${activeFlex * 0.75})`;
+          ctx.strokeStyle = `rgba(${isMaxBass ? "153, 27, 27" : "212, 175, 55"}, ${activeFlex * 0.75})`;
           ctx.lineWidth = 4 * window.devicePixelRatio;
           const waveRadius = maxRadius + flexOffset * 1.5;
           ctx.beginPath();
@@ -428,14 +428,14 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
             const currentPercent = j / ledBlockCount;
             if (j * (ledHeight + ledGap) > barHeight) break;
 
-            // Gradient: Green -> Yellow -> Orange -> Hot Pink/Red
-            let color = "rgba(16, 185, 129, 0.95)"; // Emerald
+            // Gradient: Soft wood tones -> Gold -> Warm red peaks
+            let color = "rgba(197, 168, 128, 0.95)"; // Brushed soft gold
             if (currentPercent > 0.85) {
-              color = "rgba(244, 63, 94, 0.95)"; // pink-clip
+              color = "rgba(153, 27, 27, 0.95)"; // Mahogany peak clip
             } else if (currentPercent > 0.65) {
-              color = "rgba(249, 115, 22, 0.95)"; // Orange
+              color = "rgba(212, 175, 55, 0.95)"; // Champagne gold
             } else if (currentPercent > 0.4) {
-              color = "rgba(10, 240, 160, 0.95)"; // Yellow glow
+              color = "rgba(245, 224, 195, 0.95)"; // Saddle beige leather tone
             }
 
             ctx.fillStyle = color;
@@ -464,14 +464,14 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
       }
 
       // Draw standard top digital HUD overlay
-      ctx.fillStyle = "rgba(2, 6, 20, 0.9)";
+      ctx.fillStyle = "rgba(12, 7, 5, 0.95)";
       ctx.fillRect(8 * window.devicePixelRatio, 8 * window.devicePixelRatio, 130 * window.devicePixelRatio, 24 * window.devicePixelRatio);
-      ctx.strokeStyle = "rgba(226, 232, 240, 0.4)";
+      ctx.strokeStyle = "rgba(212, 175, 55, 0.45)";
       ctx.lineWidth = 1;
       ctx.strokeRect(8 * window.devicePixelRatio, 8 * window.devicePixelRatio, 130 * window.devicePixelRatio, 24 * window.devicePixelRatio);
 
-      ctx.fillStyle = "rgb(226, 232, 240)";
-      ctx.font = `bold ${Math.round(10 * window.devicePixelRatio)}px monospace`;
+      ctx.fillStyle = "rgb(255, 255, 255)";
+      ctx.font = `600 ${Math.round(10 * window.devicePixelRatio)}px sans-serif`;
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
       const dbLabel = isPlaying ? `CABIN_GAIN: ${Math.round(normalizedVol * 100)}%` : "CABIN_GAIN: STDBY";
@@ -490,7 +490,7 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
   }, [analyser, isPlaying, visualMode, bassBoostLevel, isMaxBass]);
 
   return (
-    <div id="visualizer-stage" className="relative w-full h-full bg-[#020510]/50 rounded-2xl overflow-hidden shadow-2xl flex flex-col justify-end">
+    <div id="visualizer-stage" className="relative w-full h-full bg-[#0a0504]/50 rounded-2xl overflow-hidden shadow-2xl flex flex-col justify-end border border-stone-850">
       {/* Visual Canvas */}
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-0 block pointer-events-none" />
 
@@ -499,65 +499,65 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
         <button
           id="mode-btn-rta"
           onClick={() => setVisualMode("rta")}
-          className={`p-2 rounded-lg transition-all flex items-center gap-1.5 border-2 text-xs font-mono font-bold ${
+          className={`p-2 rounded-lg transition-all flex items-center gap-1.5 border-2 text-xs font-sans font-semibold ${
             visualMode === "rta"
-              ? "bg-[#053cf2] text-white border-white shadow-[#053cf2]/50 shadow-lg"
-              : "bg-black/90 text-slate-350 border-slate-800 hover:text-white"
+              ? "bg-white text-[#1c0303] border-slate-350 shadow-white/[0.25] shadow-lg"
+              : "bg-black/95 text-slate-350 border-slate-800/40 hover:text-white hover:border-slate-500"
           }`}
           title="RTA Head-unit Meter"
         >
-          <Zap className="w-3.5 h-3.5 text-blue-300" />
+          <Zap className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">RTA ANALYZER</span>
         </button>
 
         <button
           id="mode-btn-subflex"
           onClick={() => setVisualMode("subFlex")}
-          className={`p-2 rounded-lg transition-all flex items-center gap-1.5 border-2 text-xs font-mono font-bold ${
+          className={`p-2 rounded-lg transition-all flex items-center gap-1.5 border-2 text-xs font-sans font-semibold ${
             visualMode === "subFlex"
-              ? "bg-[#053cf2] text-white border-white shadow-[#053cf2]/50 shadow-lg"
-              : "bg-black/90 text-slate-350 border-slate-800 hover:text-white"
+              ? "bg-white text-[#1c0303] border-slate-350 shadow-white/[0.25] shadow-lg"
+              : "bg-black/95 text-slate-350 border-slate-800/40 hover:text-white hover:border-slate-500"
           }`}
           title="Subwoofer Flex Simulator"
         >
-          <Volume2 className="w-3.5 h-3.5 text-blue-300" />
+          <Volume2 className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">CONE FLEX</span>
         </button>
 
         <button
           id="mode-btn-wave"
           onClick={() => setVisualMode("plasmaWave")}
-          className={`p-2 rounded-lg transition-all flex items-center gap-1.5 border-2 text-xs font-mono font-bold ${
+          className={`p-2 rounded-lg transition-all flex items-center gap-1.5 border-2 text-xs font-sans font-semibold ${
             visualMode === "plasmaWave"
-              ? "bg-[#053cf2] text-white border-white shadow-[#053cf2]/50 shadow-lg"
-              : "bg-black/90 text-slate-350 border-slate-800 hover:text-white"
+              ? "bg-white text-[#1c0303] border-slate-350 shadow-white/[0.25] shadow-lg"
+              : "bg-black/95 text-slate-350 border-slate-800/40 hover:text-white hover:border-slate-500"
           }`}
           title="Neon Wave Oscilloscope"
         >
-          <Waves className="w-3.5 h-3.5 text-blue-300" />
+          <Waves className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">WAVE SCOPE</span>
         </button>
 
         <button
           id="mode-btn-dancingeq"
           onClick={() => setVisualMode("dancingEq")}
-          className={`p-2 rounded-lg transition-all flex items-center gap-1.5 border-2 text-xs font-mono font-bold ${
+          className={`p-2 rounded-lg transition-all flex items-center gap-1.5 border-2 text-xs font-sans font-semibold ${
             visualMode === "dancingEq"
-              ? "bg-[#053cf2] text-white border-white shadow-[#053cf2]/50 shadow-lg"
-              : "bg-black/90 text-slate-350 border-slate-800 hover:text-white"
+              ? "bg-white text-[#1c0303] border-slate-350 shadow-white/[0.25] shadow-lg"
+              : "bg-black/95 text-slate-350 border-slate-800/40 hover:text-white hover:border-slate-500"
           }`}
           title="Color Dancing Equalizer"
         >
-          <Sliders className="w-3.5 h-3.5 text-blue-300 animate-pulse" />
+          <Sliders className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">DANCING EQ</span>
         </button>
       </div>
 
       {/* Floating alert indicators */}
       {isMaxBass && isPlaying && (
-        <div className="absolute left-4 top-14 bg-red-600/90 text-white font-mono text-[10px] font-bold px-2 py-0.5 rounded border border-red-400 animate-pulse z-10 tracking-widest uppercase flex items-center gap-1 shadow-lg shadow-red-500/30">
-          <span className="inline-block w-2.5 h-2.5 rounded-full bg-white animate-ping" />
-          TRUNK SLAM ACTIVE // HAIRTRICK PRESSURE WARNING
+        <div className="absolute left-4 top-14 bg-[#4a1515]/95 text-red-100 font-sans text-[10px] font-semibold px-2 py-0.5 rounded border border-[#991b1b] animate-pulse z-10 tracking-widest uppercase flex items-center gap-1 shadow-lg shadow-[#991b1b]/35">
+          <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
+          CABIN RESONANCE DETECTED // ACTIVE COMPENSATION SHIELDING ENGAGED
         </div>
       )}
     </div>

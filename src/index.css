@@ -1,40 +1,76 @@
 @import "tailwindcss";
 
 @theme {
-  --color-candy-blue: #021a68;
-  --color-candy-blue-bright: #0a4bf0;
-  --color-candy-blue-deep: #000c30;
+  --color-candy-blue: #1e0505; /* Deep Mahogany base */
+  --color-candy-blue-bright: #e2e8f0; /* Luxury chrome silver */
+  --color-candy-blue-deep: #000000; /* Pitch black lacquer */
   --color-chrome-start: #ffffff;
-  --color-chrome-mid: #94a3b8;
-  --color-chrome-end: #334155;
+  --color-chrome-mid: #cbd5e1;
+  --color-chrome-end: #475569;
   
-  --animate-shine: shine 4s ease-in-out infinite;
-  
-  @keyframes shine {
-    0% { background-position: -200% center; }
-    50% { background-position: 200% center; }
-    100% { background-position: 200% center; }
-  }
+  --color-gold-accent: #cbd5e1; /* Soft brushed silver */
+  --color-mahogany-light: #4a1515;
+  --color-mahogany-dark: #1e0505;
+  --color-beige-leather: #faf7f2;
 }
 
-/* Custom High Gloss & Metallic Chrome utilities */
+/* Custom premium Private Jet interior utilities */
+.wood-mahogany {
+  background: linear-gradient(
+    135deg,
+    #4a1515 0%,
+    #2c0b0b 25%,
+    #1d0505 50%,
+    #5a1e1e 75%,
+    #170404 100%
+  );
+  border: 2px solid;
+  border-image: linear-gradient(
+    135deg,
+    #ffffff 0%,    /* Polished chrome overlay bounds */
+    #cbd5e1 20%,
+    #94a3b8 45%,
+    #cbd5e1 55%,   /* Inlaid silver pin-stripe */
+    #e2e8f0 80%,
+    #64748b 100%
+  ) 1;
+  box-shadow: 
+    0 25px 50px rgba(0, 0, 0, 0.95),
+    inset 0 1.5px 4px rgba(255, 255, 255, 0.3);
+}
+
+.leather-beige {
+  background: #fdfaf2;
+  border: 1px dashed #c5a880;
+  box-shadow: 
+    inset 0 2px 8px rgba(0, 0, 0, 0.05),
+    0 4px 12px rgba(0, 0, 0, 0.03);
+}
+
+.leather-beige-dark {
+  background: #f3efe0;
+  border: 1.5px dashed #b1936c;
+  box-shadow: 
+    inset 0 1px 5px rgba(0, 0, 0, 0.08);
+}
+
 .chrome-text {
   background: linear-gradient(
     to bottom,
     #ffffff 0%,
-    #f1f5f9 22%,
-    #cbd5e1 42%,
-    #334155 47%,
-    #020617 50%,
-    #1e293b 53%,
-    #e2e8f0 68%,
-    #ffffff 88%,
+    #f8fafc 25%,
+    #cbd5e1 45%,
+    #475569 50%,
+    #090d16 52%,
+    #334155 55%,
+    #e2e8f0 75%,
+    #ffffff 90%,
     #94a3b8 100%
   );
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-size: 100% 100%;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.8));
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.8));
 }
 
 .chrome-border-metallic {
@@ -42,11 +78,11 @@
   border-image: linear-gradient(
     135deg,
     #ffffff 0%,
-    #f1f5f9 10%,
-    #94a3b8 25%,
-    #334155 45%,
-    #e2e8f0 55%,
-    #1e293b 75%,
+    #f8fafc 15%,
+    #94a3b8 35%,
+    #475569 50%,
+    #e2e8f0 65%,
+    #334155 80%,
     #cbd5e1 90%,
     #ffffff 100%
   ) 1;
@@ -54,32 +90,32 @@
 
 .candy-paint-body {
   background: radial-gradient(
-    circle at 50% -30%,
-    #0b31cc 0%,
-    #04125c 30%,
-    #010522 65%,
-    #000109 100%
+    circle at 50% -20%,
+    #301515 0%,  /* Deep mahogany glow at center */
+    #130a0a 35%,
+    #050404 70%,
+    #000000 100%
   );
-  box-shadow: inset 0 2px 60px rgba(5, 45, 210, 0.7);
+  box-shadow: inset 0 2px 80px rgba(74, 21, 21, 0.35);
   background-attachment: fixed;
 }
 
-/* Luxury high-gloss coat that resembles multi-layer car paint clearcoat */
+/* Luxury high-gloss coat that resembles multi-layer car paint/wood clearcoat */
 .candy-coat-layer {
   background: linear-gradient(
     135deg,
-    rgba(8, 48, 224, 0.15) 0%,
-    rgba(2, 6, 36, 0.5) 50%,
-    rgba(0, 0, 0, 0.85) 100%
+    #320f0f 0%,
+    #170505 50%,
+    #000000 100%
   );
-  border: 2.5px solid;
+  border: 2px solid;
   border-image: linear-gradient(
     135deg,
     #ffffff 0%,
     #cbd5e1 15%,
-    #1e293b 40%,
-    #082ebb 55%,
-    #020b30 75%,
+    #475569 40%,
+    #cbd5e1 55%,
+    #1e293b 75%,
     #94a3b8 100%
   ) 1;
   box-shadow: 
@@ -103,14 +139,14 @@
   background: linear-gradient(
     90deg,
     rgba(255, 255, 255, 0) 0%,
-    rgba(255, 255, 255, 0.45) 45%,
-    rgba(255, 255, 255, 0.6) 50%,
-    rgba(255, 255, 255, 0.45) 55%,
+    rgba(255, 255, 255, 0.35) 45%,
+    rgba(255, 255, 255, 0.5) 50%,
+    rgba(255, 255, 255, 0.35) 55%,
     rgba(255, 255, 255, 0) 100%
   );
   transform: skewX(-32deg);
   pointer-events: none;
-  animation: shine-sweep 6s cubic-bezier(0.1, 0.8, 0.1, 1) infinite;
+  animation: shine-sweep 7s cubic-bezier(0.1, 0.8, 0.1, 1) infinite;
 }
 
 @keyframes shine-sweep {
@@ -120,32 +156,32 @@
 }
 
 .chrome-panel-bezel {
-  background: linear-gradient(145deg, #020618 0%, #000106 100%);
+  background: linear-gradient(145deg, #120d0c 0%, #000000 100%);
   border: 2.5px solid;
   border-image: linear-gradient(
     135deg,
     #ffffff 0%,
     #f8fafc 8%,
-    #94a3b8 32%,
-    #334155 48%,
+    #cbd5e1 32%,
+    #475569 48%,
     #ffffff 52%,
-    #475569 68%,
+    #334155 68%,
     #e2e8f0 88%,
     #ffffff 100%
   ) 1;
   box-shadow: 
     0 25px 50px -12px rgba(0, 0, 0, 0.95),
-    inset 0 2px 4px rgba(255, 255, 255, 0.25);
+    inset 0 2px 4px rgba(255, 255, 255, 0.2);
 }
 
 .candy-fill-reflection {
   background: linear-gradient(
     to bottom,
-    rgba(255, 255, 255, 0.22) 0%,
-    rgba(255, 255, 255, 0.1) 49%,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.08) 49%,
     rgba(255, 255, 255, 0) 50%,
     rgba(0, 0, 0, 0.2) 51%,
-    rgba(0, 0, 0, 0.6) 100%
+    rgba(0, 0, 0, 0.52) 100%
   );
 }
 
@@ -153,67 +189,67 @@
   background: linear-gradient(
     180deg,
     #ffffff 0%,
-    #f1f5f9 20%,
+    #f8fafc 20%,
     #cbd5e1 45%,
     #94a3b8 50%,
-    #64748b 55%,
+    #475569 55%,
     #e2e8f0 85%,
     #ffffff 100%
   );
-  border: 2px solid #ffffff;
+  border: 1.5px solid #ffffff;
   box-shadow: 
-    0 4px 6px rgba(0,0,0,0.6),
+    0 4px 6px rgba(0,0,0,0.55),
     inset 0 1px 2px rgba(255,255,255,0.9),
-    0 0 12px rgba(255,255,255,0.25);
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+    0 0 8px rgba(255,255,255,0.15);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.82);
   font-family: monospace;
   font-weight: 900;
-  color: #020617;
+  color: #1e293b;
   transition: all 0.15s ease-in-out;
 }
 
 .chrome-button-billet:hover {
-  filter: brightness(1.08);
+  filter: brightness(1.06);
   box-shadow: 
-    0 6px 12px rgba(0,0,0,0.7),
+    0 6px 12px rgba(0,0,0,0.65),
     inset 0 1.5px 3px rgba(255,255,255,1),
-    0 0 18px rgba(255,255,255,0.4);
+    0 0 12px rgba(255,255,255,0.25);
 }
 
 .chrome-button-billet:active {
   transform: scale(0.96);
   box-shadow: 
-    0 2px 3px rgba(0,0,0,0.8),
-    inset 0 1px 1px rgba(0,0,0,0.2);
+    0 2px 3px rgba(0,0,0,0.7),
+    inset 0 1px 1px rgba(0,0,0,0.25);
 }
 
-/* Custom sleek slider handle */
+/* Custom sleek slider handle - brushed chrome */
 input[type="range"]::-webkit-slider-thumb {
-  border: 2px solid #ffffff;
-  height: 18px;
-  width: 18px;
+  border: 1.5px solid #ffffff;
+  height: 16px;
+  width: 16px;
   border-radius: 50%;
-  background: radial-gradient(circle, #ffffff 30%, #e2e8f0 55%, #64748b 78%, #1e293b 100%);
+  background: radial-gradient(circle, #ffffff 30%, #e2e8f0 55%, #475569 78%, #1e293b 100%);
   box-shadow: 
-    0 0 12px rgba(255,255,255,0.95),
-    0 4px 6px rgba(0,0,0,0.5);
+    0 0 8px rgba(255,255,255,0.7),
+    0 3px 5px rgba(0,0,0,0.4);
   cursor: pointer;
   -webkit-appearance: none;
-  margin-top: -6px;
+  margin-top: -5px;
 }
 
 /* Atomic Bass Boost Shockwave Animations */
 @keyframes atomic-shake {
   0% { transform: translate(0, 0) rotate(0deg); }
-  10% { transform: translate(-4px, 3px) rotate(-1deg); }
-  20% { transform: translate(4px, -3px) rotate(1deg); }
-  30% { transform: translate(-3px, -4px) rotate(-1.5deg); }
-  40% { transform: translate(3px, 4px) rotate(1.5deg); }
-  50% { transform: translate(-2px, 3px) rotate(-1deg); }
-  60% { transform: translate(2px, -3px) rotate(1deg); }
-  70% { transform: translate(-3px, 2px) rotate(1.5deg); }
-  80% { transform: translate(3px, -2px) rotate(-1deg); }
-  90% { transform: translate(-2px, -3px) rotate(0deg); }
+  10% { transform: translate(-3px, 2px) rotate(-0.5deg); }
+  20% { transform: translate(3px, -2px) rotate(0.5deg); }
+  30% { transform: translate(-2px, -3px) rotate(-1deg); }
+  40% { transform: translate(2px, 3px) rotate(1deg); }
+  50% { transform: translate(-1px, 2px) rotate(-0.5deg); }
+  60% { transform: translate(1px, -2px) rotate(0.5deg); }
+  70% { transform: translate(-2px, 1px) rotate(1deg); }
+  80% { transform: translate(2px, -1px) rotate(-0.5deg); }
+  90% { transform: translate(-1px, -2px) rotate(0deg); }
   100% { transform: translate(0, 0) rotate(0deg); }
 }
 
@@ -226,35 +262,35 @@ input[type="range"]::-webkit-slider-thumb {
     transform: translate(-50%, -50%) scale(0.01);
     opacity: 1;
     border-width: 24px;
-    border-color: rgba(255, 255, 255, 1);
-    box-shadow: 0 0 50px rgba(255, 255, 255, 1), 
-                inset 0 0 40px rgba(224, 242, 254, 0.9);
+    border-color: rgba(251, 191, 36, 1); /* glowing golden amber blast */
+    box-shadow: 0 0 50px rgba(251, 191, 36, 1), 
+                inset 0 0 40px rgba(253, 224, 71, 0.9);
   }
   15% {
     opacity: 1;
     border-width: 14px;
-    border-color: rgba(255, 255, 255, 0.95);
-    box-shadow: 0 0 80px rgba(224, 242, 254, 0.9), 
-                0 0 140px rgba(255, 255, 255, 0.8),
-                inset 0 0 60px rgba(186, 230, 253, 0.95);
+    border-color: rgba(251, 191, 36, 0.95);
+    box-shadow: 0 0 80px rgba(253, 224, 71, 0.9), 
+                0 0 140px rgba(251, 191, 36, 0.8),
+                inset 0 0 60px rgba(254, 215, 170, 0.95);
   }
   50% {
     opacity: 0.85;
     border-width: 6px;
-    border-color: rgba(224, 242, 254, 0.8);
+    border-color: rgba(253, 224, 71, 0.8);
     border-style: double;
-    box-shadow: 0 0 160px rgba(186, 230, 253, 0.75), 
-                0 0 220px rgba(255, 255, 255, 0.5),
-                inset 0 0 100px rgba(56, 189, 248, 0.4);
+    box-shadow: 0 0 160px rgba(254, 215, 170, 0.75), 
+                0 0 220px rgba(251, 191, 36, 0.5),
+                inset 0 0 100px rgba(217, 119, 6, 0.4);
   }
   100% {
-    transform: translate(-50%, -50%) scale(12.0); /* High-speed outward propagation representing the real blast boundaries! */
+    transform: translate(-50%, -50%) scale(12.0);
     opacity: 0;
     border-width: 0.5px;
-    border-color: rgba(255, 255, 255, 0);
+    border-color: rgba(251, 191, 36, 0);
     filter: blur(2px);
-    box-shadow: 0 0 350px rgba(255, 255, 255, 0), 
-                inset 0 0 200px rgba(56, 189, 248, 0);
+    box-shadow: 0 0 350px rgba(251, 191, 36, 0), 
+                inset 0 0 200px rgba(217, 119, 6, 0);
   }
 }
 
@@ -282,16 +318,16 @@ input[type="range"]::-webkit-slider-thumb {
     opacity: 0;
   }
   10% {
-    opacity: 1;
-    background-color: #ffffff;
+    opacity: 0.5;
+    background-color: #fef08a; /* soft gold amber flash */
   }
   25% {
-    opacity: 0.85;
-    background-color: #f0f9ff; /* extremely light sky ice-white */
+    opacity: 0.4;
+    background-color: #fef3c7;
   }
   100% {
     opacity: 0;
-    background-color: #e0f2fe;
+    background-color: #fffbeb;
   }
 }
 
@@ -303,50 +339,95 @@ input[type="range"]::-webkit-slider-thumb {
   0% {
     transform: translate(-50%, -50%) scale(0.05);
     opacity: 1;
-    background: radial-gradient(circle, #ffffff 20%, #e0f2fe 50%, #bae6fd 80%, rgba(255, 255, 255, 0) 100%);
+    background: radial-gradient(circle, #ffffff 20%, #fef08a 50%, #fde047 80%, rgba(251, 191, 36, 0) 100%);
     filter: blur(1px);
   }
   50% {
     opacity: 0.85;
-    background: radial-gradient(circle, #ffffff 10%, #bae6fd 50%, #38bdf8 80%, rgba(56, 189, 248, 0) 100%);
+    background: radial-gradient(circle, #ffffff 10%, #fde047 50%, #eab308 80%, rgba(202, 138, 4, 0) 100%);
     filter: blur(8px);
   }
   100% {
     transform: translate(-50%, -50%) scale(2.5);
     opacity: 0;
-    background: radial-gradient(circle, #f0f9ff 0%, #7dd3fc 45%, rgba(14, 165, 233, 0) 100%);
+    background: radial-gradient(circle, #fef9c3 0%, #ca8a04 45%, rgba(161, 98, 7, 0) 100%);
     filter: blur(20px);
   }
 }
 
-.animate-atomic-fireball {
-  animation: atomic-fireball 1.8s cubic-bezier(0.1, 0.8, 0.2, 1) forwards;
+@keyframes glass-shaping {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  10% { transform: translate(-8px, 6px) rotate(-1.5deg); }
+  20% { transform: translate(8px, -6px) rotate(1.5deg); }
+  35% { transform: translate(-5px, -4px) rotate(-1deg); }
+  50% { transform: translate(4px, 4px) rotate(0.8deg); }
+  65% { transform: translate(-2px, 2px) rotate(-0.4deg); }
+  80% { transform: translate(1px, -1px) rotate(0.2deg); }
+  100% { transform: translate(0, 0) rotate(0deg); }
 }
 
-/* Glass Shattering Shard Animations */
-@keyframes glass-shard-fly {
+.glass-shaking {
+  animation: glass-shaping 1.6s cubic-bezier(0.12, 0.85, 0.18, 1) forwards;
+}
+
+@keyframes glass-crack-appear {
   0% {
-    transform: translate(-50%, -50%) translate(0, 0) rotate(0deg) scale(0);
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  1% {
+    opacity: 1;
+    transform: scale(1.02);
+    filter: brightness(3) drop-shadow(0 0 20px rgba(255, 255, 255, 1));
+  }
+  10% {
+    opacity: 1;
+    transform: scale(1);
+    filter: brightness(1.3) drop-shadow(0 0 8px rgba(255, 255, 255, 0.7));
+  }
+  85% {
+    opacity: 0.95;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.05);
+    filter: brightness(0);
+  }
+}
+
+.animate-glass-crack {
+  animation: glass-crack-appear 2.4s cubic-bezier(0.1, 0.9, 0.1, 1) forwards;
+}
+
+@keyframes glass-shatter-gravity {
+  0% {
+    transform: translate(-50%, -50%) translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg) rotateZ(0deg) scale(0);
     opacity: 1;
   }
-  15% {
+  6% {
+    opacity: 1;
+    transform: translate(-50%, -50%) translate3d(calc(var(--tx) * 0.12), calc(var(--ty) * 0.12), 80px) rotateX(25deg) rotateY(25deg) rotateZ(90deg) scale(1.3);
+  }
+  20% {
     opacity: 1;
   }
   100% {
-    transform: translate(-50%, -50%) translate(var(--tx), var(--ty)) rotate(var(--rot)) scale(1.1);
+    transform: translate(-50%, -50%) translate3d(var(--tx), calc(var(--ty) + 520px), -150px) rotateX(var(--rotX)) rotateY(var(--rotY)) rotateZ(var(--rotZ)) scale(0.25);
     opacity: 0;
   }
 }
 
-.glass-shard {
+.glass-shard-premium {
   position: absolute;
   top: 50%;
   left: 50%;
   pointer-events: none;
-  background: rgba(255, 255, 255, 0.25);
+  background: linear-gradient(135deg, rgba(240, 248, 255, 0.32) 0%, rgba(173, 216, 230, 0.1) 45%, rgba(255, 255, 255, 0.45) 100%);
   backdrop-filter: blur(1.5px);
-  border: 1px solid rgba(255, 255, 255, 0.95);
-  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.5), inset 0 0 5px rgba(255, 255, 255, 0.7);
-  animation: glass-shard-fly 1.7s cubic-bezier(0.1, 0.8, 0.15, 1) forwards;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 4px 18px rgba(100, 210, 255, 0.28), inset 0 0 6px rgba(255, 255, 255, 0.75);
+  animation: glass-shatter-gravity 2.4s cubic-bezier(0.12, 0.85, 0.15, 1.0) forwards;
 }
+
 

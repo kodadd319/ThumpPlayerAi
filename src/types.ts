@@ -8,6 +8,7 @@ export interface Track {
   url?: string;
   genre: string;
   imageUrl?: string;
+  albumArtUrl?: string | null;
 }
 
 export interface DspSettings {
@@ -21,9 +22,9 @@ export interface DspSettings {
 }
 
 export interface VehicleInfo {
-  vehicleType: "Hatchback" | "Sedan" | "SUV" | "Coupe" | "Truck";
-  subwooferConfig: "None" | "Single 10\" Sub" | "Single 12\" Sub" | "Dual 12\" Subs" | "Single 15\" Sub" | "Competition Wall";
-  soundPreference: "Balanced" | "SQL (Sound Quality Loud)" | "SPL (Maximum Bass Head)" | "Vocal-centric";
+  vehicleType: "Hatchback" | "Sedan" | "SUV" | "Coupe" | "Truck" | string;
+  subwooferConfig: "None" | "Single 10\" Sub" | "Single 12\" Sub" | "Dual 12\" Subs" | "Single 15\" Sub" | "Competition Wall" | string;
+  soundPreference: "Balanced" | "SQL (Sound Quality Loud)" | "SPL (Maximum Bass Head)" | "Vocal-centric" | string;
 }
 
 export interface Preset {

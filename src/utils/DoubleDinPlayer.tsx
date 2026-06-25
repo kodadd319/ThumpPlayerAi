@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from "react";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   Play,
   Pause,
@@ -13,7 +13,8 @@ import {
   Info,
   Radio,
   Sliders,
-  Sparkles
+  Sparkles,
+  Music
 } from "lucide-react";
 import { Track } from "../types";
 
@@ -54,25 +55,8 @@ export function DoubleDinPlayer({
   isMaxBass,
   onToggleMaxBass
 }: DoubleDinPlayerProps) {
-  const knobRef = useRef<HTMLDivElement>(null);
-  const volumeRef = useRef(volume);
-  const onVolumeChangeRef = useRef(onVolumeChange);
-
-  useEffect(() => {
-    volumeRef.current = volume;
-  }, [volume]);
-
-  useEffect(() => {
-    onVolumeChangeRef.current = onVolumeChange;
-  }, [onVolumeChange]);
-
-  const dragRef = useRef<{ isDragging: boolean; startY: number; startVol: number }>({
-    isDragging: false,
-    startY: 0,
-    startVol: 0,
-  });
-
-  const [activeDragging, setActiveDragging] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const prevVolumeRef = useRef(volume || 0.5);
 
   // Formatting helper
   const formatTime = (secs: number) => {
@@ -82,101 +66,36 @@ export function DoubleDinPlayer({
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  // Converts click/move client coordinates into the dial's corresponding volume (0.0 to 1.0)
-  const getAngleAndVolume = (clientX: number, clientY: number): number => {
-    if (!knobRef.current) return volumeRef.current;
-    const rect = knobRef.current.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-
-    const dx = clientX - centerX;
-    const dy = clientY - centerY;
-
-    // Angle relative to 12 o'clock (straight up) which maps naturally to a -180 to 180 range
-    let angleDeg = Math.atan2(dx, -dy) * (180 / Math.PI);
-
-    // The dial's visual sweep goes from -135 deg to +135 deg
-    // If our angle is outside this range (the dead zone in the southern sector)
-    if (angleDeg < -135) {
-      return 0; // Hard stop at 0%
-    } else if (angleDeg > 135) {
-      return 1; // Hard stop at 100%
+  // Toggle mute behavior
+  const handleToggleMute = () => {
+    if (isMuted) {
+      onVolumeChange(prevVolumeRef.current);
+      setIsMuted(false);
     } else {
-      // Map the -135 to +135 degree range onto 0.0 to 1.0
-      const pct = (angleDeg + 135) / 270;
-      return Math.max(0, Math.min(1, pct));
+      prevVolumeRef.current = volume > 0 ? volume : 0.5;
+      onVolumeChange(0);
+      setIsMuted(true);
     }
   };
 
-  // Knob interaction scroll wheel
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const diff = e.deltaY < 0 ? 0.02 : -0.02; // Fine control (2% per mouse wheel tick)
-    const nextVol = Math.max(0, Math.min(1, volumeRef.current + diff));
-    onVolumeChangeRef.current(nextVol);
-  };
-
-  // Keyboard navigation support
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const step = 0.02; // Precise 2% increments on arrows
-    if (e.key === "ArrowUp" || e.key === "ArrowRight") {
-      e.preventDefault();
-      onVolumeChangeRef.current(Math.min(1, volumeRef.current + step));
-    } else if (e.key === "ArrowDown" || e.key === "ArrowLeft") {
-      e.preventDefault();
-      onVolumeChangeRef.current(Math.max(0, volumeRef.current - step));
+  useEffect(() => {
+    if (volume > 0 && isMuted) {
+      setIsMuted(false);
     }
-  };
+  }, [volume]);
 
-  // Modern robust pointer events for both mouse and touch input
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current = {
-      isDragging: true,
-      startY: e.clientY,
-      startVol: volumeRef.current,
-    };
-    setActiveDragging(true);
-
-    // Instant precise set on click
-    const nextVol = getAngleAndVolume(e.clientX, e.clientY);
-    onVolumeChangeRef.current(nextVol);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragRef.current.isDragging) return;
-    const nextVol = getAngleAndVolume(e.clientX, e.clientY);
-    onVolumeChangeRef.current(nextVol);
-  };
-
-  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (dragRef.current.isDragging) {
-      dragRef.current.isDragging = false;
-      setActiveDragging(false);
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      } catch (err) {
-        // Safe catch
-      }
-    }
-  };
-
-  // Volume rot angle (from -135deg to +135deg)
-  const rotationAngle = -135 + volume * 270;
-
-  // Render dummy spectrum animation blocks
-  const [frequencies, setFrequencies] = useState<number[]>(Array(16).fill(0));
+  // Audio spectrum visualizer mock state
+  const [frequencies, setFrequencies] = useState<number[]>(Array(24).fill(0));
 
   useEffect(() => {
     let animationId: number;
     let lastTime = 0;
 
     const tick = (time: number) => {
-      if (time - lastTime > 65) { // Throttle visualizer state changes
+      if (time - lastTime > 60) { // Throttle updates for performance
         if (isPlaying) {
           setFrequencies(
-            Array(16)
+            Array(24)
               .fill(0)
               .map(() => Math.floor(Math.random() * 8) + 1)
           );
@@ -194,328 +113,324 @@ export function DoubleDinPlayer({
 
   return (
     <div
-      id="double-din-container"
-      className="w-full max-w-xl mx-auto rounded-3xl bg-gradient-to-b from-[#2d313f] via-[#101217] to-[#040507] border-4 border-[#3c4154] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9),inset_0_3px_6px_rgba(255,255,255,0.15)] p-4 relative high-gloss-reflection overflow-hidden"
+      id="open-spotify-player-container"
+      className="w-full max-w-xl mx-auto rounded-3xl bg-gradient-to-b from-[#140e0d] to-[#0a0504] border border-white/20 p-5 md:p-6 relative overflow-hidden mb-6 shadow-[0_25px_60px_rgba(0,0,0,0.9),0_0_30px_rgba(255,255,255,0.05)] high-gloss-reflection"
     >
-      {/* Dynamic Alpine-style silver side panel inserts */}
-      <div className="absolute top-0 bottom-0 left-0 w-2.5 bg-gradient-to-r from-slate-900 via-slate-700 to-slate-900 border-r border-[#1a1c24]" />
-      <div className="absolute top-0 bottom-0 right-0 w-2.5 bg-gradient-to-l from-slate-900 via-slate-700 to-slate-900 border-l border-[#1a1c24]" />
+      {/* Decorative subtle ambient backdrop glow mapping */}
+      <div className="absolute -top-40 -left-40 w-80 h-80 bg-white/5 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute -bottom-40 -right-40 w-80 h-80 bg-[#991b1b]/5 rounded-full blur-[100px] pointer-events-none" />
 
-      {/* Top Deck: CD/DVD Slot Drive Decoration */}
-      <div className="w-full mb-3 px-6 flex items-center justify-between">
-        <div className="flex-1 max-w-[280px] h-2 bg-gradient-to-b from-[#12141a] to-[#252a36] rounded-full border border-slate-700/60 shadow-inner relative overflow-hidden flex items-center px-4">
-          {/* Blue LED inside CD drive */}
-          <div className="absolute inset-x-20 top-0.5 bottom-0.5 bg-blue-500/50 blur-[2px] animate-pulse shadow-[0_0_10px_#3adbff]" />
-        </div>
-        <div className="flex items-center gap-1.5 ml-4">
-          <span className="text-[7px] font-mono tracking-widest text-[#3adbff] drop-shadow-[0_0_2px_rgba(58,219,255,0.4)] uppercase font-bold">DISC</span>
-          <button
-            onClick={onStop}
-            className="w-5 h-4 rounded bg-[#09152b] border border-blue-500/50 flex items-center justify-center hover:bg-blue-900/30 hover:border-blue-450 text-blue-400 shadow-[0_0_6px_rgba(0,180,255,0.5)] active:scale-90 transition-all cursor-pointer"
-            title="Eject / Force Stop"
-          >
-            <span className="text-[8px] drop-shadow-[0_0_2px_rgba(58,219,255,0.75)]">▲</span>
-          </button>
+      {/* TOP DECK HEADER: Subtle metadata line inside the player */}
+      <div className="w-full flex items-center justify-between text-[9px] font-sans tracking-widest text-stone-400 uppercase border-b border-stone-900/60 pb-3 mb-5 relative z-10">
+        <span className="flex items-center gap-1.5 text-stone-300 font-semibold">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75 ${isPlaying ? "block" : "hidden"}`}></span>
+            <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${isPlaying ? "bg-white" : "bg-stone-600"}`}></span>
+          </span>
+          ELITE STREAMING ACTIVE
+        </span>
+        <div className="flex items-center gap-3">
+          {isMaxBass && (
+            <span className="text-red-500 font-semibold animate-pulse bg-red-950/45 px-1.5 py-0.5 rounded border border-red-800/35">
+              MAX BASS ACTIVE
+            </span>
+          )}
+          <span className="font-semibold text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.45)]">{headunitTime}</span>
         </div>
       </div>
 
-      {/* Middle Deck: Faceplate Panel layout */}
-      <div className="grid grid-cols-12 gap-3.5 relative z-10">
+      {/* INTERPRETATION LAYOUT: Spotify/Streaming Open Hub */}
+      <div className="flex flex-col items-center gap-6 relative z-10 w-full mb-6">
         
-        {/* LEFT COLUMN PANEL: Tactile Rotary volume dial & Backlit Special function buttons */}
-        <div className="col-span-3 flex flex-col items-center justify-between py-1.5 gap-3 border-r border-[#1a1e2b] pr-1.5">
-          {/* ALPINE Inspired up/down triangle seek arrows */}
-          <div className="flex flex-col gap-1.5 w-full items-center">
-            <button
-              onClick={onPrev}
-              className="w-10 h-6 rounded-md bg-gradient-to-b from-[#131b2e] to-[#040814] border border-blue-500/60 shadow-[0_0_8px_rgba(58,219,255,0.35)] flex items-center justify-center hover:from-[#1d2d4e] hover:border-blue-300 active:scale-95 text-blue-400 hover:text-white transition-all cursor-pointer group"
-              title="Track Back"
-            >
-              <SkipBack className="w-3.5 h-3.5 drop-shadow-[0_0_4px_#3adbff] group-hover:scale-105 duration-150" />
-            </button>
-            <span className="text-[6.5px] font-mono text-sky-400 drop-shadow-[0_0_3px_rgba(58,219,255,0.5)] tracking-tight uppercase font-black">TRACK</span>
-            <button
-              onClick={onNext}
-              className="w-10 h-6 rounded-md bg-gradient-to-b from-[#131b2e] to-[#040814] border border-blue-500/60 shadow-[0_0_8px_rgba(58,219,255,0.35)] flex items-center justify-center hover:from-[#1d2d4e] hover:border-blue-300 active:scale-95 text-blue-400 hover:text-white transition-all cursor-pointer group"
-              title="Track Next"
-            >
-              <SkipForward className="w-3.5 h-3.5 drop-shadow-[0_0_4px_#3adbff] group-hover:scale-105 duration-150" />
-            </button>
-          </div>
-
-          {/* Glowing Translucent Backlit MENU / AUDIO Button */}
-          <button
-            onClick={onToggleShuffle}
-            className={`w-11 h-7 rounded-sm border select-none font-mono text-[7px] font-black tracking-tighter uppercase transition-all duration-300 flex flex-col items-center justify-center cursor-pointer shadow-md ${
-              shuffleMode
-                ? "bg-blue-500/40 hover:bg-blue-500 border-sky-400 text-white shadow-[0_0_15px_rgba(58,219,255,0.7),inset_0_1px_3px_rgba(255,255,255,0.3)]"
-                : "bg-[#0b101d] hover:bg-[#141f38] border-blue-500/50 text-blue-400 hover:text-sky-300 shadow-[0_0_10px_rgba(59,130,246,0.35)]"
-            }`}
-          >
-            <Shuffle className="w-2.5 h-2.5 mb-0.5" />
-            SHUFFLE
-          </button>
-
-          {/* PHYSICAL ROTARY VOLUME DIAL */}
-          <div className="flex flex-col items-center gap-1.5">
-            <span className="text-[7.5px] font-mono text-sky-300 drop-shadow-[0_0_3px_rgba(58,219,255,0.5)] tracking-widest uppercase font-bold">VOLUME</span>
-            <div
-              ref={knobRef}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onWheel={handleWheel}
-              onKeyDown={handleKeyDown}
-              tabIndex={0}
-              className={`w-16 h-16 bg-gradient-to-br from-[#060b19] via-[#1a2e5c] to-[#040814] rounded-full border-2 border-blue-500 flex items-center justify-center relative cursor-pointer select-none touch-none transition-shadow duration-200 outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#07090f] ${
-                activeDragging ? "shadow-[0_0_25px_rgba(58,219,255,0.8),inset_0_1px_4px_rgba(255,255,255,0.3)] border-sky-400" : "shadow-[0_0_15px_rgba(0,180,255,0.5),inset_0_1px_3px_rgba(255,255,255,0.2)]"
-              }`}
-              title="Tactile Volume Rotary Dial. Drag around in a circle, scroll wheel, or use arrow keys."
-            >
-              {/* Surrounding illuminated Volume LED collar path */}
-              <div
-                className="absolute inset-x-[-3px] inset-y-[-3px] rounded-full border border-sky-400/40 pointer-events-none animate-pulse"
-                style={{
-                  boxShadow: `0 0 14px rgba(58, 219, 255, ${0.4 + volume * 0.4})`
-                }}
-              />
-
-              {/* Brushed-Metal Texture Ring line overlay */}
-              <div className="absolute inset-1.5 rounded-full border border-blue-400/20 pointer-events-none" />
-
-              {/* Rotatable center grip cap with reference notch mark */}
+        {/* ALBUM ART COMPASS: Large Premium Album Art image or Generic Placeholder */}
+        <div className="relative w-64 h-64 sm:w-72 sm:h-72 mx-auto my-6 rounded-2xl overflow-hidden shadow-2xl border border-neutral-800 bg-neutral-900 flex items-center justify-center group transition-all duration-300 hover:border-neutral-700/50">
+          
+          <AnimatePresence mode="wait">
+            {(currentTrack?.albumArtUrl || currentTrack?.imageUrl) ? (
               <motion.div
-                className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#050b1d] to-[#1e346b] border border-blue-400/60 flex items-center justify-center shadow-lg relative"
-                style={{ rotate: rotationAngle }}
-                transition={{ type: "spring", stiffness: 400, damping: 28 }}
+                key={currentTrack.albumArtUrl || currentTrack.imageUrl}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.5 }}
+                className="w-full h-full relative"
               >
-                {/* Physical pointer notch mark */}
-                <div className="absolute top-1 left-1/2 w-1.5 h-1.5 -ml-0.75 bg-[#3adbff] rounded-full shadow-[0_0_10px_#3adbff] pointer-events-none" />
+                <img
+                  src={currentTrack.albumArtUrl || currentTrack.imageUrl}
+                  alt={currentTrack.name || "Album Art"}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  onError={(e) => {
+                    // Fallback if URL is broken
+                    (e.currentTarget as HTMLImageElement).style.display = "none";
+                  }}
+                />
+                
+                {/* Overlay rotating vinyl badge in corner to match double-din vibe */}
+                <div className="absolute bottom-3 right-3 bg-black/80 hover:bg-black p-1.5 rounded-full border border-slate-400/30 text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.5)] shadow-lg flex items-center justify-center">
+                  <Disc className={`w-4 h-4 ${isPlaying ? "animate-spin" : ""}`} style={{ animationDuration: '6s' }} />
+                </div>
               </motion.div>
+            ) : (
+              /* Luxury Default Fallback (Matches your Black/Beige/Mahogany aesthetic) */
+              <motion.div
+                key="fallback-art"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.5 }}
+                className="text-center p-6 flex flex-col items-center gap-3"
+              >
+                <div className="w-16 h-16 rounded-full border border-neutral-700 flex items-center justify-center text-neutral-500">
+                  🎚️
+                </div>
+                <p className="text-xs tracking-widest text-neutral-500 uppercase">
+                  ELITEPLAYERAI Engine Active
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-              {/* Center chrome jewel */}
-              <div className="absolute w-3 h-3 rounded-full bg-gradient-to-b from-sky-300/30 to-black/60 border border-blue-400 pointer-events-none" />
-            </div>
-            
-            {/* Volume feedback badge */}
-            <span className="text-[8.5px] font-mono text-[#3adbff] drop-shadow-[0_0_4px_#3adbff] uppercase font-bold tracking-widest mt-0.5">
-              VOL: {Math.round(volume * 100)}%
-            </span>
-          </div>
-
+          {/* Golden outline overlay inner border */}
+          <div className="absolute inset-0.5 rounded-[14px] border border-white/[0.03] pointer-events-none" />
+          <div className="absolute inset-1.5 rounded-[12px] border border-black/10 pointer-events-none" />
         </div>
 
-        {/* CENTER INTERACTIVE HOODED LCD SCREEN PANEL */}
-        <div className="col-span-9 flex flex-col bg-[#07090f] border-2 border-[#1a1e2b] rounded-xl p-3 shadow-[inset_0_4px_16px_rgba(0,0,0,0.95)] relative overflow-hidden select-none min-h-[190px] justify-between">
-          
-          {/* LCD Gloss glass shine reflection overlay */}
-          <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/2 to-white/6 pointer-events-none z-10 rounded-xl" />
-          
-          {/* Screen top status ticker line */}
-          <div className="flex items-center justify-between text-[7.5px] font-mono tracking-widest text-[#5d6780] uppercase border-b border-slate-900/50 pb-1.5 z-20">
-            <span className="flex items-center gap-1 font-bold text-slate-500">
-              <Radio className="w-2.5 h-2.5 text-slate-500" />
-              THUMPLAYER.AI
-            </span>
-            <div className="flex items-center gap-2">
-              {shuffleMode && (
-                <span className="text-blue-400 drop-shadow-[0_0_3px_rgba(59,130,246,0.5)] font-black">
-                  [SHUF]
-                </span>
-              )}
-              {isMaxBass && (
-                <span className="text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.5)] font-black animate-pulse">
-                  [MAX_BASS]
-                </span>
-              )}
-              <span className="text-[#3adbff] font-bold">{headunitTime}</span>
-            </div>
-          </div>
-
-          {/* MAIN BALANCED DISPLAY PANEL (Central Screen) */}
-          <div className="my-auto flex flex-col items-center justify-center py-2 relative z-20">
+        {/* TRACK METADATA INFO: Substantially increased font sizing for perfect legibility */}
+        <div className="w-full flex flex-col justify-center items-center text-center px-2 min-w-0">
+          <AnimatePresence mode="wait">
             {currentTrack ? (
-              <div className="w-full text-center flex flex-col items-center justify-center">
-                {/* Simulated Glass-Sheath Text Window */}
-                <div className="w-full overflow-hidden whitespace-nowrap mb-1">
-                  <p className="inline-block text-sm md:text-base font-mono font-black text-[#3adbff] tracking-wider drop-shadow-[0_0_8px_#3adbff] uppercase animate-marquee">
-                    {currentTrack.name}
-                  </p>
-                </div>
-                
-                {/* Metadata details line */}
-                <span className="text-[10px] font-mono text-sky-300 tracking-widest uppercase mb-1.5 font-bold truncate max-w-[280px]">
-                  {currentTrack.artist || "No Tag Artist"} // {currentTrack.album || "No Tag Album"}
+              <motion.div
+                key={currentTrack.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="w-full flex flex-col items-center"
+              >
+                {/* Album / Playlist Context Indicator */}
+                <span className="text-[10px] font-sans font-semibold tracking-[0.25em] text-slate-300 uppercase mb-1.5">
+                  NOW REPRODUCING
                 </span>
 
-                {/* Simulated Track Progress timeline bar */}
-                <div className="w-full max-w-[240px] mt-1 flex flex-col gap-1 items-stretch">
-                  <div className="flex items-center justify-between text-[9px] font-mono text-[#3adbff] font-bold tracking-widest">
-                    <span>{formatTime(songProgress)}</span>
-                    <span className="text-slate-500">/</span>
-                    <span>{formatTime(songDuration || currentTrack.duration)}</span>
-                  </div>
-                  {/* Progress timeline click/seek rail wrapper */}
-                  <div 
-                    onClick={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      const ratio = (e.clientX - rect.left) / rect.width;
-                      onSeek(ratio * (songDuration || currentTrack.duration || 120));
-                    }}
-                    className="h-1.5 bg-[#0e121d] rounded-full border border-slate-800 relative cursor-pointer group"
-                  >
-                    <div 
-                      className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-[#00b0ff] to-[#3adbff] rounded-full shadow-[0_0_6px_rgba(58,219,255,0.7)]"
-                      style={{ width: `${Math.min(100, ((songProgress / (songDuration || currentTrack.duration || 120)) * 100))}%` }}
-                    />
-                    <div 
-                      className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-white rounded-full border-2 border-[#3adbff] shadow-md scale-0 group-hover:scale-110 transition-transform"
-                      style={{ left: `${Math.min(98, ((songProgress / (songDuration || currentTrack.duration || 120)) * 100))}%` }}
-                    />
-                  </div>
+                {/* Song Title (Bigger size: text-2xl base, text-3xl sm) */}
+                <h2 className="text-2xl sm:text-3xl font-sans font-semibold text-white tracking-normal leading-tight truncate max-w-full uppercase drop-shadow-[0_2px_10px_rgba(255,255,255,0.05)]">
+                  {currentTrack.name}
+                </h2>
+
+                {/* Artist Name (Bigger size: text-sm base, text-lg sm) */}
+                <p className="text-sm sm:text-base text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.4)] font-sans font-semibold tracking-widest uppercase mt-2">
+                  {currentTrack.artist || "Unknown Artist"}
+                </p>
+
+                {/* Album Name (Bigger size: text-xs base, text-sm sm) */}
+                <p className="text-xs sm:text-sm text-stone-400 font-sans font-semibold tracking-wide mt-1 italic">
+                  {currentTrack.album || "Single Release"}
+                </p>
+
+                {/* Dynamic Genre Tag overlay */}
+                <div className="flex items-center justify-center gap-2.5 mt-4">
+                  <span className="text-[9px] font-sans font-semibold tracking-[0.12em] text-white bg-white/10 px-3 py-1 rounded-full border border-white/20 shadow-[0_0_10px_rgba(255,255,255,0.1)] uppercase">
+                    Hi-Fidelity Lossless
+                  </span>
+                  <span className="text-[9px] font-sans font-semibold tracking-[0.12em] text-stone-300 bg-stone-900 px-3 py-1 rounded-full border border-stone-800 uppercase font-light">
+                    {currentTrack.genre || "Lossless Direct"}
+                  </span>
                 </div>
-              </div>
+              </motion.div>
             ) : (
-              <div className="text-center flex flex-col items-center justify-center opacity-45">
-                <span className="text-sm font-mono font-black text-[#3adbff]/50 uppercase tracking-wider">
-                  No Track Loaded
+              <div className="w-full flex flex-col items-center opacity-60">
+                <span className="text-[9px] font-sans tracking-[0.25em] text-stone-500 uppercase mb-2 font-semibold">
+                  STREAMING SYSTEM READY
                 </span>
-                <span className="text-[9px] font-mono text-slate-500 tracking-wider uppercase mt-1">
-                  Select or upload a song below to start playing
-                </span>
+                <h2 className="text-xl sm:text-2xl font-sans font-semibold text-stone-300 tracking-wide">
+                  Waiting For Track Selection
+                </h2>
+                <p className="text-xs font-sans text-stone-500 uppercase mt-2 tracking-widest font-light">
+                  Pick a song from your collection below
+                </p>
+                <div className="mt-4 p-2.5 rounded-full bg-stone-900 border border-stone-850 animate-pulse text-stone-400">
+                  <Radio className="w-5 h-5 stroke-[1.5]" />
+                </div>
               </div>
             )}
-          </div>
-
-          {/* LOWER SECTION: Micro Spectrum segment rows & active labels */}
-          <div className="flex items-end justify-between border-t border-slate-900/50 pt-2 z-20">
-            {/* Audio Type Badges */}
-            <div className="flex flex-col gap-0.5 text-left">
-              <span className="text-[8px] font-mono font-bold text-[#3ea4f9] uppercase tracking-wider">
-                SOURCE: <span className="text-white bg-blue-900/60 border border-blue-500/20 px-1 py-0.2 rounded">MY LIBRARY</span>
-              </span>
-              <span className="text-[7px] font-mono text-slate-500 uppercase tracking-tight font-extrabold flex items-center gap-1 mt-0.5">
-                <Disc className={`w-2.5 h-2.5 ${isPlaying ? "animate-spin text-blue-400" : ""}`} />
-                High-Resolution Audio
-              </span>
-            </div>
-
-            {/* RETRO DANCING LCD EQUALIZER SPECTRUM */}
-            <div className="flex items-end gap-[2px] h-6 px-1 border-l border-slate-900/60 pl-3">
-              {frequencies.map((lev, idx) => (
-                <div key={idx} className="flex flex-col-reverse justify-end gap-[1px] w-[3.5px] h-full">
-                  {Array.from({ length: 8 }).map((_, segmentIdx) => {
-                    const isActive = segmentIdx < lev;
-                    // Segment coloring from bottom (green) to top (red)
-                    let segmentBg = "bg-slate-905";
-                    if (isActive) {
-                      if (segmentIdx >= 6) {
-                        segmentBg = "bg-[#f43f5e] shadow-[0_0_2px_#f43f5e]";
-                      } else if (segmentIdx >= 4) {
-                        segmentBg = "bg-[#fb923c] shadow-[0_0_2px_#fb923c]";
-                      } else {
-                        segmentBg = "bg-[#3adbff] shadow-[0_0_2px_#3adbff]";
-                      }
-                    } else {
-                      segmentBg = "bg-slate-900/70";
-                    }
-                    return (
-                      <div
-                        key={segmentIdx}
-                        className={`w-full h-[2.2px] rounded-xs transition-colors duration-100 ${segmentBg}`}
-                      />
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          </div>
-
+          </AnimatePresence>
         </div>
-
       </div>
 
-      {/* LOWER PANEL: Bottom Solid Bezel Buttons strip */}
-      <div className="mt-4 pt-3.5 border-t border-[#1b233a] flex items-center justify-center gap-2 px-1 relative z-10">
-        
-        {/* SKIP BACK BUTTON */}
-        <motion.button
-          whileTap={{ scale: 0.92, y: 1.5 }}
-          onClick={onPrev}
-          className="flex-1 max-w-[80px] h-9 rounded-md bg-gradient-to-b from-[#0b101d] to-[#04060c] border border-blue-500/65 shadow-[0_0_10px_rgba(0,180,255,0.25)] flex flex-col items-center justify-center hover:from-[#131c33] hover:border-blue-300 cursor-pointer text-blue-400 hover:text-white transition-all group"
-          title="Skip Backwards"
+      {/* TRACK TIMELINE PROGRESS: Modern Seeking Slider directly visible */}
+      <div className="w-full mt-4 mb-2 flex flex-col gap-1.5 relative z-10 bg-black/35 p-3 rounded-2xl border border-stone-900/85">
+        <div className="flex items-center justify-between text-[10px] font-sans text-stone-400 font-semibold tracking-wider px-1">
+          <span className="text-stone-100">{formatTime(songProgress)}</span>
+          <div className="h-[1px] flex-1 mx-3 bg-stone-905" />
+          <span className="text-slate-200">{currentTrack ? formatTime(songDuration || currentTrack.duration) : "00:00"}</span>
+        </div>
+
+        {/* Custom Seek track */}
+        <div 
+          onClick={(e) => {
+            if (!currentTrack) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const ratio = (e.clientX - rect.left) / rect.width;
+            onSeek(ratio * (songDuration || currentTrack.duration || 120));
+          }}
+          className={`h-2 rounded-full relative cursor-pointer outline-none transition-all duration-150 ${
+            currentTrack ? "bg-stone-900/90 group" : "bg-stone-950/40 cursor-not-allowed"
+          }`}
         >
-          <SkipBack className="w-4.5 h-4.5 text-blue-400 drop-shadow-[0_0_4px_rgba(58,219,255,0.7)] group-hover:scale-105 duration-150" />
-          <span className="text-[6.5px] font-mono font-bold tracking-tighter mt-0.5 text-sky-300 drop-shadow-[0_0_2px_rgba(58,219,255,0.5)]">PREVIOUS</span>
-        </motion.button>
+          {/* Background Highlight fill */}
+          <div 
+            className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-slate-400 via-white to-slate-350 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.7)] transition-all"
+            style={{ width: `${Math.min(100, ((songProgress / (songDuration || (currentTrack?.duration) || 120)) * 100))}%` }}
+          />
+          {/* Seeking handle */}
+          {currentTrack && (
+            <div 
+              className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full border-2 border-slate-300 shadow-[0_2px_4px_rgba(0,0,0,0.6)] scale-100 opacity-90 hover:scale-125 transition-transform"
+              style={{ left: `calc(${Math.min(99, ((songProgress / (songDuration || currentTrack.duration || 120)) * 100))}% - 6px)` }}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* DIGITAL CONTROL DECK: Centered circular buttons in Spotify layout */}
+      <div className="flex items-center justify-between gap-4 mt-4 relative z-10 w-full px-1">
+        
+        {/* SHUFFLE BUTTON */}
+        <button
+          onClick={onToggleShuffle}
+          className={`w-9 h-9 rounded-full border flex items-center justify-center cursor-pointer transition-all ${
+            shuffleMode
+              ? "bg-white/10 border-slate-350 text-white shadow-[0_0_12px_rgba(255,255,255,0.45)]"
+              : "bg-transparent border-stone-850 hover:border-stone-500 text-stone-400 hover:text-white"
+          }`}
+          title="Toggle Shuffle"
+        >
+          <Shuffle className="w-4 h-4" />
+        </button>
+
+        {/* PREVIOUS TRACK */}
+        <button
+          onClick={onPrev}
+          className="w-10 h-10 rounded-full border border-stone-850 bg-transparent flex items-center justify-center text-stone-300 hover:text-white hover:border-stone-450 active:scale-90 transition-all cursor-pointer"
+          title="Previous Track"
+        >
+          <SkipBack className="w-4.5 h-4.5" />
+        </button>
+
+        {/* CENTRAL PRIMARY PLAY / PAUSE SPIN BUTTON */}
+        <button
+          onClick={onPlayPause}
+          className="w-14 h-14 rounded-full bg-gradient-to-br from-white via-slate-100 to-slate-400 p-0.5 border-2 border-slate-300 shadow-[0_0_24px_rgba(255,255,255,0.45)] cursor-pointer hover:scale-105 active:scale-95 transition-all text-stone-950 flex items-center justify-center"
+          title={isPlaying ? "Pause Track" : "Play Track"}
+        >
+          {isPlaying ? (
+            <Pause className="w-6 h-6 text-stone-900 fill-stone-900" />
+          ) : (
+            <Play className="w-6 h-6 text-stone-900 fill-stone-900 ml-0.5" />
+          )}
+        </button>
+
+        {/* NEXT TRACK */}
+        <button
+          onClick={onNext}
+          className="w-10 h-10 rounded-full border border-stone-850 bg-transparent flex items-center justify-center text-stone-300 hover:text-white hover:border-stone-450 active:scale-90 transition-all cursor-pointer"
+          title="Next Track"
+        >
+          <SkipForward className="w-4.5 h-4.5" />
+        </button>
 
         {/* STOP BUTTON */}
-        <motion.button
-          whileTap={{ scale: 0.92, y: 1.5 }}
+        <button
           onClick={onStop}
-          className="flex-1 max-w-[80px] h-9 rounded-md bg-gradient-to-b from-[#0b101d] to-[#04060c] border border-blue-500/65 shadow-[0_0_10px_rgba(0,180,255,0.25)] flex flex-col items-center justify-center hover:from-[#131c33] hover:border-blue-300 cursor-pointer text-blue-400 hover:text-white transition-all group"
-          title="Stop Track"
+          className="w-9 h-9 rounded-full border border-stone-850 bg-transparent flex items-center justify-center text-red-500 hover:text-red-400 hover:border-red-950/65 active:scale-90 transition-all cursor-pointer"
+          title="Force Stop & Reset"
         >
-          <Square className="w-4 h-4 text-red-500 drop-shadow-[0_0_4px_rgba(239,68,68,0.7)] group-hover:scale-105 duration-150" />
-          <span className="text-[6.5px] font-mono font-bold tracking-tighter mt-0.5 text-sky-300 drop-shadow-[0_0_2px_rgba(58,219,255,0.5)]">STOP</span>
-        </motion.button>
-
-        {/* PRIMARY PLAY / PAUSE BUTTON */}
-        <motion.button
-          whileTap={{ scale: 0.92, y: 1.5 }}
-          onClick={onPlayPause}
-          className={`flex-[1.5] max-w-[125px] h-9.5 rounded-md border flex flex-col items-center justify-center cursor-pointer transition-all ${
-            isPlaying
-              ? "bg-gradient-to-b from-[#0e3b2e] to-[#031c15] border-emerald-400 text-white shadow-[0_0_18px_rgba(16,185,129,0.5),0_0_8px_rgba(0,180,255,0.45)]"
-              : "bg-gradient-to-b from-[#0a182e] to-[#020712] border-blue-500 shadow-[0_0_15px_rgba(58,219,255,0.45)] hover:border-sky-400 hover:from-[#10274c] text-[#3adbff] hover:text-white"
-          }`}
-          title={isPlaying ? "Click to Pause" : "Click to Play"}
-        >
-          <div className="flex items-center gap-1.5">
-            {isPlaying ? (
-              <Pause className="w-4 h-4 animate-pulse text-emerald-300 drop-shadow-[0_0_4px_#10b981]" />
-            ) : (
-              <Play className="w-4 h-4 text-[#3adbff] drop-shadow-[0_0_5px_#3adbff]" />
-            )}
-          </div>
-          <span className={`text-[7.5px] font-mono font-black tracking-widest mt-0.5 ${isPlaying ? "text-emerald-300 drop-shadow-[0_0_2px_rgba(16,185,129,0.6)]" : "text-sky-300 drop-shadow-[0_0_3px_rgba(58,219,255,0.6)]"}`}>
-            {isPlaying ? "PAUSE" : "PLAY"}
-          </span>
-        </motion.button>
-
-        {/* SKIP FORWARD BUTTON */}
-        <motion.button
-          whileTap={{ scale: 0.92, y: 1.5 }}
-          onClick={onNext}
-          className="flex-1 max-w-[80px] h-9 rounded-md bg-gradient-to-b from-[#0b101d] to-[#04060c] border border-blue-500/65 shadow-[0_0_10px_rgba(0,180,255,0.25)] flex flex-col items-center justify-center hover:from-[#131c33] hover:border-blue-300 cursor-pointer text-blue-400 hover:text-white transition-all group"
-          title="Skip Forward"
-        >
-          <SkipForward className="w-4.5 h-4.5 text-blue-400 drop-shadow-[0_0_4px_rgba(58,219,255,0.7)] group-hover:scale-105 duration-150" />
-          <span className="text-[6.5px] font-mono font-bold tracking-tighter mt-0.5 text-sky-300 drop-shadow-[0_0_2px_rgba(58,219,255,0.5)]">NEXT</span>
-        </motion.button>
-
-        {/* ATOMIC MAX BASS BUTTON */}
-        <motion.button
-          whileTap={{ scale: 0.92, y: 1.5 }}
-          onClick={onToggleMaxBass}
-          className={`flex-1 max-w-[85px] h-9 rounded-md border flex flex-col items-center justify-center cursor-pointer font-black tracking-tight uppercase transition-all duration-300 text-center shadow-md ${
-            isMaxBass
-              ? "bg-[#3f0808] text-red-100 border-red-500 animate-pulse shadow-[0_0_20px_rgba(239,68,68,0.8),0_0_10px_rgba(58,219,255,0.5)]"
-              : "bg-gradient-to-b from-[#0b101d] to-[#04060c] hover:bg-[#131c33] border-blue-500/50 text-red-500 hover:text-red-400 shadow-[0_0_10px_rgba(58,219,255,0.2)]"
-          }`}
-          title="Max Bass Booster"
-        >
-          <span className="text-[8px] font-black tracking-tighter scale-95 drop-shadow-[0_0_3px_rgba(239,68,68,0.4)]">💥 MAX BASS</span>
-          <span className="text-[6.5px] font-mono tracking-tighter text-sky-300 drop-shadow-[0_0_2px_rgba(58,219,255,0.4)]">BOOST</span>
-        </motion.button>
-
+          <Square className="w-3.5 h-3.5 fill-red-800/10" />
+        </button>
       </div>
 
-      {/* Decorative branding badges & screws for dashboard immersion */}
-      <div className="absolute top-2.5 left-5 w-1 h-1 rounded-full bg-slate-950/70 border-t border-slate-600/30" />
-      <div className="absolute top-2.5 right-5 w-1 h-1 rounded-full bg-slate-950/70 border-t border-slate-600/30" />
-      <div className="absolute bottom-2 left-5 w-1 h-1 rounded-full bg-slate-950/70 border-t border-slate-600/30" />
-      <div className="absolute bottom-2 right-5 w-1 h-1 rounded-full bg-slate-950/70 border-t border-slate-600/30" />
+      {/* HORIZONTAL VOLUME SLIDER: Complete and responsive directly on the page */}
+      <div className="w-full mt-5 pt-4 border-t border-stone-900/60 flex items-center gap-3.5 relative z-10 select-none">
+        {/* Speaker Mute/Vibrate Icon button clickable */}
+        <button
+          onClick={handleToggleMute}
+          className="text-stone-400 hover:text-white transition-all cursor-pointer hover:scale-105"
+          title={isMuted ? "Unmute Volume" : "Mute Volume"}
+        >
+          {isMuted || volume === 0 ? (
+            <VolumeX className="w-4.5 h-4.5 text-red-500 animate-pulse" />
+          ) : (
+            <Volume2 className="w-4.5 h-4.5" />
+          )}
+        </button>
+
+        {/* Modern Volume Slider */}
+        <div className="flex-1 flex items-center relative">
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={isMuted ? 0 : volume}
+            onChange={(e) => {
+              const val = parseFloat(e.target.value);
+              onVolumeChange(val);
+              if (isMuted && val > 0) setIsMuted(false);
+            }}
+            className="w-full h-1.5 rounded-lg appearance-none cursor-pointer outline-none bg-stone-900 [&::-webkit-slider-runnable-track]:bg-stone-900 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-white"
+            style={{
+              background: `linear-gradient(to right, #e2e8f0 0%, #e2e8f0 ${isMuted ? 0 : volume * 100}%, #1c1917 ${isMuted ? 0 : volume * 100}%, #1c1917 100%)`
+            }}
+            title="Sleek direct volume feedback stream"
+          />
+        </div>
+
+        {/* Precise volume badge info */}
+        <span className="text-[10px] font-sans font-semibold text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.3)] min-w-[36px] text-right">
+          {isMuted ? "MUTED" : `${Math.round(volume * 100)}%`}
+        </span>
+
+        {/* COMP BASS MAX OVERLAP */}
+        <button
+          onClick={onToggleMaxBass}
+          className={`px-3 py-1.5 rounded-xl border font-sans text-[9px] font-semibold uppercase tracking-wider transition-all cursor-pointer ${
+            isMaxBass
+              ? "bg-[#4a1515] border-[#991b1b] text-red-100 animate-pulse shadow-[0_0_12px_rgba(153,27,27,0.5)]"
+              : "bg-stone-900 hover:bg-stone-850 border-stone-800 text-stone-400 hover:text-white"
+          }`}
+          title="Boost Bass 100%"
+        >
+          💥 BASS MAX
+        </button>
+      </div>
+
+      {/* BOTTOM SPECTRUM WAVEFORM (Embedded directly inside player) */}
+      <div className="w-full mt-5 pt-4 border-t border-stone-900/40 flex items-end justify-center gap-[4.4px] h-14 px-1 relative z-10 overflow-hidden">
+        {frequencies.map((lev, idx) => (
+          <div key={idx} className="flex flex-col-reverse justify-end gap-[3px] w-[10px] h-full">
+            {Array.from({ length: 8 }).map((_, segmentIdx) => {
+              const isActive = segmentIdx < lev;
+              let segmentBg = "bg-stone-950/80";
+              if (isActive) {
+                if (segmentIdx >= 6) {
+                  segmentBg = "bg-red-700 shadow-[0_0_4px_#b91c1c]"; // High-frequency mahogany red
+                } else if (segmentIdx >= 4) {
+                  segmentBg = "bg-slate-350 shadow-[0_0_4px_rgba(255,255,255,0.7)]"; // Chrome silver
+                } else {
+                  segmentBg = "bg-stone-300 shadow-[0_0_4px_#e3e3e3]"; // Metallic beige silver
+                }
+              }
+              return (
+                <div
+                  key={segmentIdx}
+                  className={`w-full h-[4.4px] rounded-xs transition-colors duration-100 ${segmentBg}`}
+                />
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
     </div>
   );
 }

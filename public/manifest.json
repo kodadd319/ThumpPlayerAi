@@ -1,6 +1,6 @@
 {
-  "name": "ThumpPlayerAi - Car Audio Player",
-  "short_name": "ThumpPlayer",
+  "name": "ELITEPLAYERAI",
+  "short_name": "ELITEPLAYERAI",
   "description": "Your music optimized for your ride. Interactive car audio player featuring real-time EQ, bass-booster knobs, and virtual cabin visualizers.",
   "start_url": "/",
   "display": "standalone",

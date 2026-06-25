@@ -10,6 +10,9 @@ interface EqSlidersProps {
   selectedPresetName: string;
   onPresetSelect: (preset: Preset) => void;
   isPremiumActive?: boolean;
+  customEqBands: number[] | null;
+  onSaveCustom: () => void;
+  onResetCustom: () => void;
 }
 
 export const EqSliders: React.FC<EqSlidersProps> = ({
@@ -19,73 +22,131 @@ export const EqSliders: React.FC<EqSlidersProps> = ({
   presets,
   selectedPresetName,
   onPresetSelect,
-  isPremiumActive = false
+  isPremiumActive = false,
+  customEqBands,
+  onSaveCustom,
+  onResetCustom
 }) => {
   const bands = [
-    { label: "60 Hz", subtext: "Sub-Bass", color: "from-[#0a4bf0] to-blue-900" },
-    { label: "250 Hz", subtext: "Mid-Bass", color: "from-[#053cf2] to-blue-800" },
-    { label: "1 kHz", subtext: "Vocal Mid", color: "from-[#1052f5] to-blue-900" },
-    { label: "4 kHz", subtext: "Upper Mid", color: "from-[#1c64f7] to-indigo-900" },
-    { label: "16 kHz", subtext: "High Treble", color: "from-[#2b7cf8] to-slate-900" }
+    { label: "60 Hz", subtext: "Deep Bass", color: "from-[#991b1b] to-[#1c0303]" }, 
+    { label: "250 Hz", subtext: "Bass", color: "from-[#b45309] to-[#1c0303]" }, 
+    { label: "1 kHz", subtext: "Voices", color: "from-white to-[#1c0303]" }, 
+    { label: "4 kHz", subtext: "Clarity", color: "from-[#cbd5e1] to-[#1c0303]" }, 
+    { label: "16 kHz", subtext: "Sparkle", color: "from-[#e2e8f0] to-[#1c0303]" } 
   ];
 
   return (
-    <div className="bg-slate-950/20 p-4 rounded-xl flex flex-col h-full relative">
+    <div className="bg-[#0f0a09]/80 p-4 rounded-xl flex flex-col h-full relative border border-white/15 shadow-2xl">
       {/* EQ Header */}
       <div className="flex items-center justify-between mb-4 z-10">
         <div className="flex items-center gap-2">
-          <Sliders className="w-5 h-5 text-blue-500" />
-          <h3 className="font-mono text-xs font-black uppercase tracking-widest text-[#cbd5e1] chrome-text">
+          <Sliders className="w-5 h-5 text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.5)]" />
+          <h3 className="font-sans text-xs font-semibold uppercase tracking-widest text-[#cbd5e1] chrome-text">
             Presets
           </h3>
         </div>
         <button
           id="reset-eq-btn"
           onClick={onReset}
-          className="text-[10px] font-mono font-bold text-slate-200 hover:text-white transition-colors bg-gradient-to-b from-slate-800 to-slate-950 px-2.5 py-1.5 rounded border border-slate-500 flex items-center gap-1 active:bg-black shadow cursor-pointer font-black"
+          className="text-[10px] font-sans font-semibold text-slate-200 hover:text-white transition-colors bg-gradient-to-b from-stone-850 to-stone-950 px-2.5 py-1.5 rounded border border-slate-750 flex items-center gap-1 active:bg-black shadow cursor-pointer"
           title="Reset EQ to flat 0dB"
         >
-          <RotateCcw className="w-3 h-3 text-blue-400" />
+          <RotateCcw className="w-3 h-3 text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.5)]" />
           FLAT
         </button>
       </div>
 
       {/* Preset Select Buttons */}
-      <div className="flex flex-col gap-1.5 mb-4 z-10 border-b border-slate-800/80 pb-3.5">
+      <div className="flex flex-col gap-1.5 mb-4 z-10 border-b border-stone-800/80 pb-3.5">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-1.5">
           {presets.map((preset) => {
             const isSelected = selectedPresetName === preset.name;
             const isLocked = preset.isPremium && !isPremiumActive;
+            const isCustom = preset.name.toLowerCase() === "custom";
+
+            if (isCustom) {
+              return (
+                <div key={preset.name} className="flex items-center gap-1.5 w-full">
+                  <button
+                    type="button"
+                    onClick={() => onPresetSelect(preset)}
+                    className={`flex-1 px-2.5 py-1.5 rounded-lg border-2 text-[10px] font-sans font-semibold tracking-wider transition-all cursor-pointer text-left uppercase truncate flex items-center justify-between gap-1 h-[32px] ${
+                      isSelected
+                        ? "bg-white/10 text-white border-slate-350 shadow-[0_0_8px_rgba(255,255,255,0.4)]"
+                        : "bg-black border-stone-850 hover:bg-stone-900 text-stone-400 hover:text-white"
+                    }`}
+                    title={preset.name}
+                  >
+                    <span className="truncate">{preset.name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onResetCustom();
+                    }}
+                    className="p-1.5 rounded-lg border-2 border-stone-850 bg-black hover:bg-stone-900 text-stone-400 hover:text-red-400 transition-all cursor-pointer flex items-center justify-center shrink-0 h-[32px] w-[32px]"
+                    title="Reset Custom Preset"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              );
+            }
+
             return (
               <button
                 key={preset.name}
                 type="button"
                 onClick={() => onPresetSelect(preset)}
-                className={`px-2.5 py-1.5 rounded-lg border-2 text-[10px] font-mono font-black tracking-wider transition-all cursor-pointer text-left uppercase truncate flex items-center justify-between gap-1 ${
+                className={`px-2.5 py-1.5 rounded-lg border-2 text-[10px] font-sans font-semibold tracking-wider transition-all cursor-pointer text-left uppercase truncate flex items-center justify-between gap-1 h-[32px] ${
                   isSelected
-                    ? "bg-[#052cf0]/30 text-white border-white shadow-[0_0_8px_rgba(5,44,240,0.5)]"
-                    : "bg-black border-slate-800 hover:bg-slate-900 text-slate-400 hover:text-white"
+                    ? "bg-white/10 text-white border-slate-350 shadow-[0_0_8px_rgba(255,255,255,0.4)]"
+                    : "bg-black border-stone-850 hover:bg-stone-900 text-stone-400 hover:text-white"
                 }`}
                 title={preset.name}
               >
                 <span className="truncate">{preset.name}</span>
-                {isLocked && <Lock className="w-2.5 h-2.5 text-amber-400 shrink-0" />}
+                {isLocked && <Lock className="w-2.5 h-2.5 text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.7)] shrink-0" />}
               </button>
             );
           })}
         </div>
       </div>
 
+      {/* Prompt for Custom Preset adjustment/saving */}
+      {selectedPresetName === "Custom" && (
+        <div className="mb-4 p-3 bg-blue-950/40 border border-blue-900/40 rounded-lg flex flex-col sm:flex-row items-center justify-between gap-3 animate-fade-in z-10">
+          <div className="flex flex-col text-left">
+            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider leading-none mb-1">
+              Custom Equalizer
+            </span>
+            <span className="text-xs text-slate-200 font-medium leading-tight">
+              {customEqBands === null 
+                ? "adjust equalizer to desired levels" 
+                : "Levels saved to your account. Adjust anytime & save to update."}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onSaveCustom}
+            className="w-full sm:w-auto px-4 py-1.5 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-sans font-bold text-[11px] rounded shadow-lg shadow-cyan-950/50 hover:shadow-cyan-900/60 transition-all cursor-pointer flex items-center justify-center gap-1 uppercase tracking-wider"
+          >
+            Save
+          </button>
+        </div>
+      )}
+
       {/* Grid of Equalizer faders */}
-      <div className="flex-1 grid grid-cols-5 gap-3.5 items-stretch relative min-h-[160px] md:min-h-[200px] z-10">
+      <div className="flex-1 grid grid-cols-5 gap-4 items-stretch relative min-h-[260px] md:min-h-[360px] z-10">
         
         {/* Horizontal dB alignment indicator lines in background */}
         <div className="absolute inset-x-0 top-[8%] bottom-[8%] flex flex-col justify-between pointer-events-none opacity-20">
-          <div className="border-t border-dashed border-slate-600 text-[8px] font-mono text-slate-400 pl-1 pt-0.5">+12dB</div>
-          <div className="border-t border-dashed border-slate-600 text-[8px] font-mono text-slate-400 pl-1 pt-0.5">+6dB</div>
-          <div className="border-t border-solid border-slate-700 text-[8px] font-mono text-blue-500 pl-1 pt-0.5">0dB (FLAT)</div>
-          <div className="border-t border-dashed border-slate-600 text-[8px] font-mono text-slate-400 pl-1 pt-0.5">-6dB</div>
-          <div className="border-t border-dashed border-slate-600 text-[8px] font-mono text-slate-400 pl-1 pt-0.5">-12dB</div>
+          <div className="border-t border-dashed border-stone-750 text-[8px] font-sans text-slate-400 pl-1 pt-0.5">+12dB</div>
+          <div className="border-t border-dashed border-stone-750 text-[8px] font-sans text-slate-400 pl-1 pt-0.5">+6dB</div>
+          <div className="border-t border-solid border-stone-700 text-[8px] font-sans text-slate-300 pl-1 pt-0.5">0dB (FLAT)</div>
+          <div className="border-t border-dashed border-stone-750 text-[8px] font-sans text-slate-400 pl-1 pt-0.5">-6dB</div>
+          <div className="border-t border-dashed border-stone-750 text-[8px] font-sans text-slate-400 pl-1 pt-0.5">-12dB</div>
         </div>
 
         {bands.map((band, idx) => {
@@ -96,20 +157,20 @@ export const EqSliders: React.FC<EqSlidersProps> = ({
           return (
             <div key={idx} className="flex flex-col items-center justify-between z-10 relative group">
               {/* dB indicator label directly above fader */}
-              <span className={`text-[11px] font-mono font-bold ${
-                currentGain > 6 ? "text-red-400" : currentGain < -6 ? "text-slate-400" : "text-blue-400"
+              <span className={`text-[12px] font-sans font-semibold ${
+                currentGain > 6 ? "text-red-500" : currentGain < -6 ? "text-slate-400" : "text-white font-medium drop-shadow-[0_0_4.5px_rgba(255,255,255,0.45)]"
               }`}>
                 {currentGain > 0 ? `+${currentGain.toFixed(0)}` : currentGain.toFixed(0)}
               </span>
 
               {/* Slider Track Body Column */}
-              <div className="relative w-7 flex-1 my-3 flex items-center justify-center">
+              <div className="relative w-9 flex-1 my-4 flex items-center justify-center">
                 {/* Visual track background groove */}
-                <div className="absolute inset-y-0 w-2.5 rounded-full bg-slate-950 border border-slate-750 shadow-inner" />
+                <div className="absolute inset-y-0 w-3 rounded-full bg-stone-950 border border-stone-800 shadow-inner" />
                 
                 {/* Active range fill indicator */}
                 <div 
-                  className={`absolute bottom-0 w-1.5 rounded-full bg-gradient-to-t ${band.color} opacity-60 shadow-[0_0_8px_rgba(10,75,240,0.5)]`}
+                  className={`absolute bottom-0 w-2 rounded-full bg-gradient-to-t ${band.color} opacity-60 shadow-[0_0_8px_rgba(255,255,255,0.3)]`}
                   style={{ height: `${percent}%` }}
                 />
 
@@ -132,25 +193,25 @@ export const EqSliders: React.FC<EqSlidersProps> = ({
                 
                 {/* Custom Neon Knurled Slider Fader Knob */}
                 <div
-                  className="absolute left-1/2 -translate-x-1/2 w-6 h-3.5 rounded bg-gradient-to-b from-[#ffffff] via-[#f1f5f9] via-[#94a3b8] via-[#09101d] via-[#cbd5e1] to-[#ffffff] border-2 border-slate-300 shadow-xl pointer-events-none cursor-ns-resize flex flex-col justify-between p-0.5 transition-all"
+                  className="absolute left-1/2 -translate-x-1/2 w-8 h-4.5 rounded bg-gradient-to-b from-[#ffffff] via-[#f1f5f9] via-[#94a3b8] via-[#09101d] via-[#cbd5e1] to-[#ffffff] border-2 border-slate-300 shadow-xl pointer-events-none cursor-ns-resize flex flex-col justify-between p-0.5 transition-all"
                   style={{
-                    bottom: `calc(${percent}% - 7px)`,
+                    bottom: `calc(${percent}% - 9px)`,
                     boxShadow: "0 3px 6px rgba(0,0,0,0.9), inset 0 1px 1.5px rgba(255,255,255,0.95)"
                   }}
                 >
                   {/* Grip teeth center lines */}
                   <div className="w-full h-[1px] bg-white/20" />
-                  <div className="w-full h-1 bg-[#094bf0] rounded-sm shadow-[0_0_8px_#094bf0,0_0_2px_#fff]" />
+                  <div className="w-full h-1 bg-white rounded-sm shadow-[0_0_6px_rgba(255,255,255,0.9),0_0_2px_#fff]" />
                   <div className="w-full h-[1px] bg-black/40" />
                 </div>
               </div>
 
               {/* Fader Labels */}
               <div className="text-center">
-                <span className="text-[10px] font-extrabold font-mono text-slate-100 block tracking-tight truncate max-w-[50px] md:max-w-none">
+                <span className="text-[11px] font-semibold font-sans text-slate-100 block tracking-tight truncate max-w-[50px] md:max-w-none">
                   {band.label}
                 </span>
-                <span className="text-[8px] font-mono text-slate-500 block leading-none">
+                <span className="text-[9px] font-sans text-slate-500 block leading-none font-light">
                   {band.subtext}
                 </span>
               </div>

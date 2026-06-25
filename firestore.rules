@@ -26,7 +26,32 @@ service cloud.firestore {
           && data.uid is string 
           && data.uid.size() <= 128
           && (!('accentTheme' in data) || (data.accentTheme is string && data.accentTheme.size() <= 32))
-          && (!('lastLogin' in data) || (data.lastLogin is string && data.lastLogin.size() <= 64));
+          && (!('lastLogin' in data) || (data.lastLogin is string && data.lastLogin.size() <= 64))
+          && (!('volume' in data) || (data.volume is number))
+          && (!('isMuted' in data) || (data.isMuted is bool))
+          && (!('repeatMode' in data) || (data.repeatMode is string && data.repeatMode.size() <= 16))
+          && (!('shuffleMode' in data) || (data.shuffleMode is bool))
+          && (!('subscriptionTier' in data) || (data.subscriptionTier is string && data.subscriptionTier.size() <= 16))
+          && (!('currentTrackId' in data) || (data.currentTrackId is string && data.currentTrackId.size() <= 128))
+          && (!('selectedPresetName' in data) || (data.selectedPresetName is string && data.selectedPresetName.size() <= 128))
+          && (!('isMaxBass' in data) || (data.isMaxBass is bool))
+          && (!('vehicleInfo' in data) || (
+              data.vehicleInfo is map
+              && (!('vehicleType' in data.vehicleInfo) || (data.vehicleInfo.vehicleType is string && data.vehicleInfo.vehicleType.size() <= 128))
+              && (!('subwooferConfig' in data.vehicleInfo) || (data.vehicleInfo.subwooferConfig is string && data.vehicleInfo.subwooferConfig.size() <= 128))
+              && (!('soundPreference' in data.vehicleInfo) || (data.vehicleInfo.soundPreference is string && data.vehicleInfo.soundPreference.size() <= 128))
+             ))
+          && (!('dspSettings' in data) || (
+              data.dspSettings is map
+              && (!('eqBands' in data.dspSettings) || (data.dspSettings.eqBands is list && data.dspSettings.eqBands.size() <= 10))
+              && (!('bassBoost' in data.dspSettings) || (data.dspSettings.bassBoost is number))
+              && (!('reverbWet' in data.dspSettings) || (data.dspSettings.reverbWet is number))
+              && (!('delayOffsetMs' in data.dspSettings) || (data.dspSettings.delayOffsetMs is number))
+              && (!('highPassFilterHz' in data.dspSettings) || (data.dspSettings.highPassFilterHz is number))
+              && (!('subCrossoverHz' in data.dspSettings) || (data.dspSettings.subCrossoverHz is number))
+              && (!('justification' in data.dspSettings) || (data.dspSettings.justification is string && data.dspSettings.justification.size() <= 2048))
+             ))
+          && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
     }
     
     // Entity Track Validation Helper

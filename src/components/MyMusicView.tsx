@@ -13,7 +13,9 @@ import {
   Tag,
   Search,
   Check,
-  FolderSync
+  FolderSync,
+  Database,
+  Grid
 } from "lucide-react";
 import { Track } from "../types";
 import { motion, AnimatePresence } from "motion/react";
@@ -30,7 +32,7 @@ interface MyMusicViewProps {
   handleFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
   handleCloudFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
   deleteSelectedTracks: (trackIds: string[]) => Promise<void>;
-  onPlayTrackById: (trackId: string) => void;
+  onPlayTrackById: (trackId: string, customQueue?: Track[]) => void;
   setUploadError: (msg: string) => void;
   setUploadSuccess: (msg: string) => void;
 }
@@ -56,21 +58,20 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
   const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
-  // 1. Filter out sample/built-in tracks to get only the user's uploaded library files
+  // 1. Filter out sample/built-in tracks to get user uploaded music
   const uploadedTracks = useMemo(() => {
     return playlist.filter(track => !track.id.startsWith("sample-"));
   }, [playlist]);
 
-  // Determine current playing track if it's an uploaded track
+  // Determine current active track details if playing from the user's list
   const currentPlayingTrackId = useMemo(() => {
     if (currentTrackIndex >= 0 && currentTrackIndex < playlist.length) {
-      const active = playlist[currentTrackIndex];
-      return active.id;
+      return playlist[currentTrackIndex].id;
     }
     return null;
   }, [playlist, currentTrackIndex]);
 
-  // Apply search query filter
+  // Apply search query filter with broad tolerance
   const filteredTracks = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return uploadedTracks;
@@ -83,7 +84,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
     );
   }, [uploadedTracks, searchQuery]);
 
-  // 2. Compute categories mapping
+  // Compute groupings dynamically based on state
   const tracksByArtist = useMemo(() => {
     const groups: Record<string, Track[]> = {};
     filteredTracks.forEach(track => {
@@ -114,7 +115,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
     return groups;
   }, [filteredTracks]);
 
-  // Toggle single track selection
+  // Selection state helpers
   const toggleSelectTrack = (trackId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedTrackIds(prev => 
@@ -122,7 +123,6 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
     );
   };
 
-  // Toggle selection for all filtered tracks
   const isAllSelected = filteredTracks.length > 0 && selectedTrackIds.length === filteredTracks.length;
   const toggleSelectAll = () => {
     if (isAllSelected) {
@@ -134,7 +134,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
 
   const handleBatchDelete = async () => {
     if (selectedTrackIds.length === 0) return;
-    if (confirm(`Are you sure you want to permanently delete ${selectedTrackIds.length} select track(s) from your music library?`)) {
+    if (confirm(`Do you wish to remove the selected ${selectedTrackIds.length} track(s) from your music library?`)) {
       const idsToDelete = [...selectedTrackIds];
       setSelectedTrackIds([]);
       await deleteSelectedTracks(idsToDelete);
@@ -149,27 +149,38 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
   };
 
   return (
-    <div className="bg-gradient-to-b from-[#151924] to-[#0a0c12] border-2 border-slate-800/85 rounded-3xl p-5 shadow-2xl relative flex flex-col gap-5 select-none text-slate-100">
-      
-      {/* Header Info */}
-      <div className="flex items-center justify-between border-b border-slate-800/60 pb-3">
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="w-full flex flex-col gap-8 text-left select-none text-slate-200 p-2 sm:p-4"
+      id="elegant-my-music-view"
+    >
+      {/* 1. Elegant Header Panel */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-white/5">
         <div>
-          <h3 className="font-mono text-[12px] font-black uppercase tracking-widest text-[#3adbff] flex items-center gap-1.5 leading-none">
-            <Music className="w-4 h-4 text-sky-400 animate-pulse" />
-            My Music Library
-          </h3>
-          <p className="text-[8.5px] font-mono text-slate-400 mt-1 uppercase tracking-wide">
-            UPLOADED ARCHIVE PORTAL
+          <h1 className="text-2xl font-sans font-light tracking-wide text-white flex items-center gap-2.5">
+            <Music className="w-6 h-6 text-white stroke-[1.5] drop-shadow-[0_0_4px_rgba(255,255,255,0.4)]" />
+            Your Music Collection
+          </h1>
+          <p className="text-xs text-slate-400 mt-1.5 font-light">
+            Manage, upload, and sync your personalized library of audio tracks and dynamic calibration lists.
           </p>
         </div>
-        <div className="flex items-center gap-1.5 font-mono text-[9px] font-bold bg-[#0a0f1b] border border-sky-500/20 px-2.5 py-1 rounded text-[#3adbff]">
-          <span>{uploadedTracks.length} CHROME TRACKS</span>
+        
+        {/* Songs Count Badge */}
+        <div className="self-start md:self-center">
+          <span className="px-4 py-2 rounded-2xl bg-white/[0.03] border border-white/10 text-xs text-slate-300 font-sans tracking-wider font-semibold">
+            {uploadedTracks.length === 1 ? "1 Song Loaded" : `${uploadedTracks.length} Songs Loaded`}
+          </span>
         </div>
       </div>
 
-      {/* 2. Upload Sections */}
-      <div className="grid grid-cols-2 gap-3">
-        <label className="flex flex-col items-center justify-center p-4 border border-dashed border-slate-700/80 rounded-xl hover:border-blue-500/50 hover:bg-blue-950/15 cursor-pointer group active:scale-98 transition-all text-center select-none backdrop-blur-xs">
+      {/* 2. Upload Zones: spacious, floating, relaxed feel */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        {/* Upload Local File */}
+        <label className="group relative flex items-center gap-5 p-6 rounded-2xl bg-[#0f0a09]/50 hover:bg-[#1a110f]/80 border border-slate-850 hover:border-slate-500 transition-all duration-300 cursor-pointer overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/[0.02] to-white/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
           <input 
             type="file" 
             accept="audio/*" 
@@ -181,12 +192,22 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
             }} 
             className="hidden" 
           />
-          <Upload className="w-5 h-5 text-slate-400 group-hover:text-[#3adbff] mb-2 duration-150" />
-          <span className="text-[10px] font-mono tracking-tight text-[#cbd5e1] font-bold">ADD OFF-LINE TRACK</span>
-          <span className="text-[7.5px] font-mono text-slate-400 mt-0.5">LOCAL MP3 IN-DASH FILES</span>
+          <div className="p-4 rounded-full bg-white/10 text-white group-hover:scale-110 transition-transform duration-300">
+            <Upload className="w-5 h-5 stroke-[1.5]" />
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm font-sans font-semibold text-white tracking-wide">
+              Add Local Tracks
+            </span>
+            <span className="text-xs text-slate-400 font-light">
+              Choose audio files directly from your computer or device storage.
+            </span>
+          </div>
         </label>
         
-        <label className="flex flex-col items-center justify-center p-4 border border-dashed border-slate-700/80 rounded-xl hover:border-emerald-500/50 hover:bg-emerald-950/15 cursor-pointer group active:scale-98 transition-all text-center select-none backdrop-blur-xs">
+        {/* Sync with Cloud Storage */}
+        <label className="group relative flex items-center gap-5 p-6 rounded-2xl bg-[#0f0a09]/50 hover:bg-[#1a110f]/80 border border-slate-850 hover:border-slate-400 transition-all duration-300 cursor-pointer overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/[0.015] to-white/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
           <input 
             type="file" 
             accept="audio/*" 
@@ -197,162 +218,195 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
             }} 
             className="hidden" 
           />
-          <Sparkles className="w-5 h-5 text-slate-400 group-hover:text-emerald-400 mb-2 duration-150" />
-          <span className="text-[10px] font-mono tracking-tight text-[#cbd5e1] font-bold">SYNC CLOUD STORAGE</span>
-          <span className="text-[7.5px] font-mono text-slate-400 mt-0.5">
-            {currentUser ? "FIREBASE COMP STORAGE" : "LOG IN FOR SYNC"}
-          </span>
+          <div className="p-4 rounded-full bg-white/10 text-white group-hover:scale-110 transition-transform duration-300">
+            <Sparkles className="w-5 h-5 stroke-[1.5]" />
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm font-sans font-semibold text-white tracking-wide">
+              Sync Cloud Storage
+            </span>
+            <span className="text-xs text-slate-400 font-light">
+              {currentUser 
+                ? "Back up and stream files securely across all synced devices." 
+                : "Log in or register to synchronize your personal music cloud."}
+            </span>
+          </div>
         </label>
       </div>
 
-      {/* Upload Progress Bar */}
-      {isUploading && (
-        <div className="p-3 bg-[#0a1523] border border-sky-500/20 rounded-xl flex flex-col gap-1.5 text-center">
-          <div className="flex items-center justify-between text-[9px] font-mono font-bold text-[#3adbff]">
-            <span>UPLOADING TO COMP STATION...</span>
-            <span>{uploadProgress || 0}%</span>
-          </div>
-          <div className="h-1.5 bg-[#10192a] rounded-full overflow-hidden">
-            <div className="h-full bg-[#3adbff] duration-150" style={{ width: `${uploadProgress || 0}%` }} />
-          </div>
+      {/* Progress Bars and Status Alerts */}
+      <AnimatePresence>
+        {isUploading && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="p-5 rounded-2xl bg-slate-950/40 border border-white/15 flex flex-col gap-2.5"
+          >
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-white font-light flex items-center gap-2">
+                <FolderSync className="w-4 h-4 text-white animate-spin" />
+                Uploading your music file...
+              </span>
+              <span className="font-sans text-white font-semibold">{uploadProgress || 0}%</span>
+            </div>
+            <div className="h-1 bg-stone-900 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-slate-300 to-slate-100 transition-all duration-300" style={{ width: `${uploadProgress || 0}%` }} />
+            </div>
+          </motion.div>
+        )}
+
+        {uploadError && (
+          <motion.div 
+            initial={{ opacity: 0, y: -5 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-4 rounded-xl bg-red-500/10 border border-red-500/10 text-xs text-red-400"
+          >
+            <p className="font-light">{uploadError}</p>
+          </motion.div>
+        )}
+
+        {uploadSuccess && (
+          <motion.div 
+            initial={{ opacity: 0, y: -5 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/10 text-xs text-emerald-400"
+          >
+            <p className="font-light">{uploadSuccess}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 3. Filtering & Beautiful Category Swapper */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mt-2">
+        {/* Tab Buttons (Relaxed, no hard frames, floating accent hover) */}
+        <div className="flex flex-wrap gap-2.5">
+          {(["all", "artist", "album", "genre"] as const).map((catName) => {
+            const label = catName === "all" ? "All Songs" : catName;
+            const isActive = viewCategory === catName;
+            return (
+              <button
+                key={catName}
+                onClick={() => {
+                  setViewCategory(catName);
+                  setSelectedTrackIds([]);
+                }}
+                className={`px-5 py-2.5 rounded-xl font-sans text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer ${
+                  isActive
+                    ? "bg-white/10 text-white font-semibold border border-slate-400"
+                    : "text-slate-400 hover:text-white hover:bg-white/[0.02]"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
-      )}
 
-      {/* Status Messages toasts */}
-      {uploadError && (
-        <p className="text-[8.5px] font-mono text-red-400 font-bold uppercase tracking-wide bg-red-950/20 border border-red-500/20 rounded-lg p-2.5">
-          {uploadError}
-        </p>
-      )}
-      {uploadSuccess && (
-        <p className="text-[8.5px] font-mono text-emerald-400 font-bold uppercase tracking-wide bg-[#022d1a]/30 border border-emerald-500/20 rounded-lg p-2.5">
-          {uploadSuccess}
-        </p>
-      )}
-
-      {/* 3. Category selector & Search bar */}
-      <div className="flex flex-col gap-3">
-        <div className="grid grid-cols-4 gap-1 p-0.5 bg-slate-950/80 rounded-lg border border-slate-800/80">
-          {(["all", "artist", "album", "genre"] as const).map((catName) => (
-            <button
-              key={catName}
-              onClick={() => {
-                setViewCategory(catName);
-                setSelectedTrackIds([]);
-              }}
-              className={`py-1.5 rounded-md font-mono text-[8px] font-bold uppercase tracking-wider transition-colors duration-100 ${
-                viewCategory === catName
-                  ? "bg-[#0b1c3a] text-[#3adbff] border border-sky-500/30 font-black"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              {catName === "all" ? "All Tracks" : catName}
-            </button>
-          ))}
-        </div>
-
-        {/* Live Filter query box */}
-        <div className="relative">
-          <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-500" />
+        {/* Live Search Input with Glass Styling */}
+        <div className="relative w-full lg:max-w-md">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="FILTER BY TITLE, ARTIST, ALBUM, OR GENRE..."
-            className="w-full bg-[#030712]/90 border border-slate-800 focus:border-sky-500/50 rounded-lg py-2 pl-9 pr-4 text-[9px] font-mono uppercase tracking-wide text-white placeholder-slate-500 outline-none transition-colors"
+            placeholder="Search songs, artists, or albums..."
+            className="w-full bg-[#0f0a09]/50 hover:bg-white/[0.04] focus:bg-white/[0.05] border border-stone-850 focus:border-white/30 py-3 pl-11 pr-5 rounded-xl text-xs text-white placeholder-slate-400 outline-none transition-all duration-200"
           />
         </div>
       </div>
 
-      {/* Deletion & Batch Selection Panel */}
+      {/* 4. Selection & Dynamic Action Panel */}
       {filteredTracks.length > 0 && (
-        <div className="flex items-center justify-between bg-slate-950/40 border border-slate-800 p-2.5 rounded-lg text-xs">
+        <div className="flex items-center justify-between bg-[#0f0a09]/50 border border-stone-850 p-4 rounded-2xl">
           <button
             onClick={toggleSelectAll}
-            className="flex items-center gap-1.5 text-slate-400 hover:text-[#3adbff] font-mono text-[9px] uppercase tracking-wider transition-colors duration-100 cursor-pointer"
+            className="flex items-center gap-2.5 text-slate-400 hover:text-white text-xs tracking-wider transition-colors duration-150 cursor-pointer"
           >
             {isAllSelected ? (
-              <CheckSquare className="w-4 h-4 text-[#3adbff]" />
+              <CheckSquare className="w-4 h-4 text-white" />
             ) : (
-              <Square className="w-4 h-4 text-slate-500" />
+              <Square className="w-4 h-4 text-slate-600" />
             )}
-            <span>Select All ({filteredTracks.length})</span>
+            <span>Select all songs ({filteredTracks.length})</span>
           </button>
 
           {selectedTrackIds.length > 0 && (
             <button
               onClick={handleBatchDelete}
-              className="px-2.5 py-1 text-red-400 hover:text-red-300 border border-red-500/20 hover:border-red-500/50 hover:bg-red-950/20 rounded font-mono text-[9px] uppercase tracking-wider flex items-center gap-1 transition-all duration-100 cursor-pointer active:scale-95"
+              className="px-4 py-2 text-xs text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/15 border border-red-500/20 active:scale-95 rounded-xl transition-all duration-150 flex items-center gap-2 cursor-pointer"
             >
-              <Trash2 className="w-3 h-3" />
-              <span>DELETE SELECTED ({selectedTrackIds.length})</span>
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete selected ({selectedTrackIds.length})</span>
             </button>
           )}
         </div>
       )}
 
-      {/* 4. Categorized list content */}
-      <div className="flex flex-col gap-2 max-h-[350px] overflow-y-auto pr-1">
+      {/* 5. Custom Tracks Listing Container */}
+      <div className="flex flex-col gap-3 min-h-[220px]">
         {filteredTracks.length === 0 ? (
-          <div className="p-8 text-center border border-dashed border-slate-800 rounded-xl bg-slate-950/10">
-            <FolderSync className="w-7 h-7 text-slate-600 mx-auto mb-2.5 animate-pulse" />
-            <p className="text-[10px] font-mono text-slate-400 uppercase font-bold tracking-wider">
-              {searchQuery ? "No matches found for filter string" : "Your music library is silent."}
-            </p>
-            <p className="text-[8px] font-mono text-slate-500 mt-1 uppercase">
-              {searchQuery ? "Try a different search word" : "Upload standard in-dash MP3/WAV storage files to start"}
+          <div className="p-12 text-center rounded-2xl bg-white/[0.01] border border-dashed border-white/5">
+            <FolderSync className="w-8 h-8 text-slate-500 mx-auto mb-3 stroke-[1.5] animate-pulse" />
+            <h3 className="text-sm font-sans font-medium text-slate-300">
+              {searchQuery ? "No search results match" : "Your music library is currently empty"}
+            </h3>
+            <p className="text-xs text-slate-500 mt-1.5 font-light">
+              {searchQuery 
+                ? "Try checking your spelling or looking for a different title." 
+                : "Add local files or log in to sync saved tracks on your profile."}
             </p>
           </div>
         ) : (
-          <>
-            {/* Flat List Component ("all") */}
+          <div className="flex flex-col gap-1.5">
+            {/* Direct Flat Stream view */}
             {viewCategory === "all" && (
-              <div className="flex flex-col gap-1 text-xs">
-                {filteredTracks.map((track) => {
+              <div className="flex flex-col gap-1">
+                 {filteredTracks.map((track) => {
                   const isSelectedForDel = selectedTrackIds.includes(track.id);
                   const isPlayingActive = track.id === currentPlayingTrackId;
                   return (
                     <div
                       key={track.id}
-                      onClick={() => onPlayTrackById(track.id)}
-                      className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 cursor-pointer group transition-all relative ${
+                      onClick={() => onPlayTrackById(track.id, filteredTracks)}
+                      className={`p-4 rounded-xl border flex items-center justify-between gap-4 cursor-pointer group transition-all duration-200 ${
                         isPlayingActive
-                          ? "bg-sky-500/10 border-sky-500/50 shadow-[#3adbff]/10 shadow-xs"
-                          : "bg-[#0b0c10]/40 hover:bg-slate-900/60 border-slate-800/80 hover:border-slate-700/80"
+                          ? "bg-white/[0.04] border-white/30"
+                          : "bg-[#0a0504]/50 hover:bg-[#150e0d]/50 border-stone-850/60 hover:border-slate-550/30"
                       }`}
                     >
-                      <div className="flex items-center gap-2 max-w-[80%] truncate">
+                      <div className="flex items-center gap-3.5 max-w-[80%] truncate">
                         <button
-                          onClick={(e) => toggleSelectTrack(track.id, e)}
-                          className="text-slate-500 hover:text-sky-400 p-0.5 focus:outline-none"
+                           onClick={(e) => toggleSelectTrack(track.id, e)}
+                           className="text-slate-400 hover:text-white p-0.5 focus:outline-none cursor-pointer"
                         >
                           {isSelectedForDel ? (
-                            <CheckSquare className="w-3.5 h-3.5 text-sky-400" />
+                            <CheckSquare className="w-4 h-4 text-white" />
                           ) : (
-                            <Square className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400" />
+                            <Square className="w-4 h-4 text-slate-700 group-hover:text-slate-400 transition-colors" />
                           )}
                         </button>
 
-                        <div className="truncate flex flex-col">
-                          <span className={`text-[10px] font-mono font-bold uppercase truncate ${isPlayingActive ? "text-sky-400" : "text-slate-200 group-hover:text-white"}`}>
+                        <div className="truncate flex flex-col gap-0.5">
+                          <span className={`text-[13px] font-sans font-semibold truncate ${isPlayingActive ? "text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.45)]" : "text-white group-hover:text-white transition-colors"}`}>
                             {track.name}
                           </span>
-                          <span className="text-[7.5px] font-mono text-slate-400 uppercase truncate mt-0.5">
-                            {track.artist} // {track.album} // {track.genre}
+                          <span className="text-xs text-slate-400 font-light truncate">
+                            {track.artist || "Unknown Artist"} • {track.album || "Unknown Album"} • {track.genre || "Unknown Genre"}
                           </span>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-3">
                         {isPlayingActive && isPlaying ? (
-                          <span className="flex items-end gap-[1.5px] h-3 mr-1">
-                            <span className="w-[1.5px] bg-[#3adbff] rounded-xs animate-bounce" style={{ height: "100%", animationDuration: "0.8s" }} />
-                            <span className="w-[1.5px] bg-[#3adbff] rounded-xs animate-bounce" style={{ height: "60%", animationDelay: "0.15s", animationDuration: "0.6s" }} />
-                            <span className="w-[1.5px] bg-[#3adbff] rounded-xs animate-bounce" style={{ height: "80%", animationDelay: "0.3s", animationDuration: "0.9s" }} />
-                          </span>
+                          <div className="flex items-end gap-0.5 h-3.5 mr-2">
+                            <span className="w-0.5 bg-white rounded-full animate-bounce h-full" style={{ animationDuration: "1s" }} />
+                            <span className="w-0.5 bg-white rounded-full animate-bounce h-2/3" style={{ animationDelay: "0.2s", animationDuration: "0.8s" }} />
+                            <span className="w-0.5 bg-white rounded-full animate-bounce h-4/5" style={{ animationDelay: "0.4s", animationDuration: "1.1s" }} />
+                          </div>
                         ) : null}
-                        <span className="text-[8.5px] font-mono text-[#3adbff]">
-                          {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : "0:00"}
+                        <span className="text-xs text-slate-400 font-sans font-medium">
+                          {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
                         </span>
                       </div>
                     </div>
@@ -363,61 +417,61 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
 
             {/* ARTIST Grouping */}
             {viewCategory === "artist" && (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3">
                 {Object.keys(tracksByArtist).sort().map((artistName) => {
                   const groupTracks = tracksByArtist[artistName];
                   const isExpanded = !!expandedGroups[artistName];
                   return (
-                    <div key={artistName} className="border border-slate-800/80 rounded-lg overflow-hidden bg-slate-900/10">
+                    <div key={artistName} className="rounded-xl border border-white/10 bg-[#0f0a09]/50 overflow-hidden">
                       <div
                         onClick={() => toggleGroup(artistName)}
-                        className="p-3 bg-[#0a0f1b]/70 flex items-center justify-between border-b border-slate-800/60 cursor-pointer hover:bg-slate-900/50 transition-colors"
+                        className="p-4 bg-white/[0.015] flex items-center justify-between cursor-pointer hover:bg-white/[0.03] transition-colors"
                       >
-                        <div className="flex items-center gap-2">
-                          {isExpanded ? <ChevronDown className="w-3.5 h-3.5 text-sky-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-500" />}
-                          <Mic className="w-3.5 h-3.5 text-sky-500" />
-                          <span className="text-[10px] font-mono font-black uppercase text-slate-200">{artistName}</span>
+                        <div className="flex items-center gap-3 text-slate-200">
+                          {isExpanded ? <ChevronDown className="w-4 h-4 text-white" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                          <Mic className="w-4 h-4 text-white" />
+                          <span className="text-[13px] font-sans font-semibold tracking-wide text-white">{artistName}</span>
                         </div>
-                        <span className="text-[7.5px] font-mono text-slate-400 uppercase font-bold bg-[#0c1424] px-2 py-0.5 rounded border border-slate-800">
-                          {groupTracks.length} tracks
+                        <span className="text-[10px] text-slate-400 font-sans font-medium px-2 py-0.5 bg-white/[0.03] rounded-lg">
+                          {groupTracks.length === 1 ? "1 song" : `${groupTracks.length} songs`}
                         </span>
                       </div>
                       
                       {isExpanded && (
-                        <div className="p-1 px-1.5 flex flex-col gap-1.5 bg-[#03060f]/60">
+                        <div className="p-2 bg-black/[0.15] border-t border-white/5 flex flex-col gap-1">
                           {groupTracks.map((track) => {
                             const isSelectedForDel = selectedTrackIds.includes(track.id);
                             const isPlayingActive = track.id === currentPlayingTrackId;
                             return (
                               <div
                                 key={track.id}
-                                onClick={() => onPlayTrackById(track.id)}
-                                className={`p-2 rounded flex items-center justify-between gap-3 cursor-pointer group transition-all ${
-                                  isPlayingActive ? "bg-sky-500/5 border border-sky-500/20" : "hover:bg-slate-900/40"
+                                onClick={() => onPlayTrackById(track.id, groupTracks)}
+                                className={`p-3 rounded-lg flex items-center justify-between gap-3 cursor-pointer group transition-all ${
+                                  isPlayingActive ? "bg-white/10" : "hover:bg-white/[0.02]"
                                 }`}
                               >
-                                <div className="flex items-center gap-2 max-w-[80%] truncate">
+                                <div className="flex items-center gap-3 truncate max-w-[80%]">
                                   <button
                                     onClick={(e) => toggleSelectTrack(track.id, e)}
-                                    className="text-slate-500 hover:text-sky-400 p-0.5 focus:outline-none"
+                                    className="text-slate-450 hover:text-white p-0.5 focus:outline-none cursor-pointer"
                                   >
                                     {isSelectedForDel ? (
-                                      <CheckSquare className="w-3.5 h-3.5 text-sky-400" />
+                                      <CheckSquare className="w-3.5 h-3.5 text-white" />
                                     ) : (
-                                      <Square className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400" />
+                                      <Square className="w-3.5 h-3.5 text-slate-700 group-hover:text-slate-400" />
                                     )}
                                   </button>
                                   <div className="truncate flex flex-col">
-                                    <span className={`text-[9.5px] font-mono font-bold uppercase truncate ${isPlayingActive ? "text-sky-400" : "text-slate-300"}`}>
+                                    <span className={`text-[12px] font-sans font-medium truncate ${isPlayingActive ? "text-white" : "text-slate-200"}`}>
                                       {track.name}
                                     </span>
-                                    <span className="text-[7px] font-mono text-slate-500 uppercase truncate">
-                                      ALBUM: {track.album} // GENRE: {track.genre}
+                                    <span className="text-[10px] text-slate-500 font-light mt-0.5">
+                                      {track.album ? `${track.album}` : "Unknown Album"}
                                     </span>
                                   </div>
                                 </div>
-                                <span className="text-[8.5px] font-mono text-slate-400">
-                                  {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : "0:00"}
+                                <span className="text-xs text-slate-500 font-sans font-medium">
+                                  {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
                                 </span>
                               </div>
                             );
@@ -432,61 +486,61 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
 
             {/* ALBUM Grouping */}
             {viewCategory === "album" && (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3">
                 {Object.keys(tracksByAlbum).sort().map((albumName) => {
                   const groupTracks = tracksByAlbum[albumName];
                   const isExpanded = !!expandedGroups[albumName];
                   return (
-                    <div key={albumName} className="border border-slate-800/80 rounded-lg overflow-hidden bg-slate-900/10">
+                    <div key={albumName} className="rounded-xl border border-white/11 bg-[#0f0a09]/50 overflow-hidden">
                       <div
                         onClick={() => toggleGroup(albumName)}
-                        className="p-3 bg-[#0a0f1b]/70 flex items-center justify-between border-b border-slate-800/60 cursor-pointer hover:bg-slate-900/50 transition-colors"
+                        className="p-4 bg-white/[0.015] flex items-center justify-between cursor-pointer hover:bg-white/[0.03] transition-colors"
                       >
-                        <div className="flex items-center gap-2">
-                          {isExpanded ? <ChevronDown className="w-3.5 h-3.5 text-sky-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-500" />}
-                          <Disc className="w-3.5 h-3.5 text-sky-500" />
-                          <span className="text-[10px] font-mono font-black uppercase text-slate-200">{albumName}</span>
+                        <div className="flex items-center gap-3 text-slate-200">
+                          {isExpanded ? <ChevronDown className="w-4 h-4 text-white" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                          <Disc className="w-4 h-4 text-white" />
+                          <span className="text-[13px] font-sans font-semibold tracking-wide text-white">{albumName}</span>
                         </div>
-                        <span className="text-[7.5px] font-mono text-slate-400 uppercase font-bold bg-[#0c1424] px-2 py-0.5 rounded border border-slate-800">
-                          {groupTracks.length} tracks
+                        <span className="text-[10px] text-slate-400 font-sans font-medium px-2 py-0.5 bg-white/[0.03] rounded-lg">
+                          {groupTracks.length === 1 ? "1 song" : `${groupTracks.length} songs`}
                         </span>
                       </div>
                       
                       {isExpanded && (
-                        <div className="p-1 px-1.5 flex flex-col gap-1.5 bg-[#03060f]/60">
+                        <div className="p-2 bg-black/[0.15] border-t border-white/5 flex flex-col gap-1">
                           {groupTracks.map((track) => {
                             const isSelectedForDel = selectedTrackIds.includes(track.id);
                             const isPlayingActive = track.id === currentPlayingTrackId;
                             return (
                               <div
                                 key={track.id}
-                                onClick={() => onPlayTrackById(track.id)}
-                                className={`p-2 rounded flex items-center justify-between gap-3 cursor-pointer group transition-all ${
-                                  isPlayingActive ? "bg-sky-500/5 border border-sky-500/20" : "hover:bg-slate-900/40"
+                                onClick={() => onPlayTrackById(track.id, groupTracks)}
+                                className={`p-3 rounded-lg flex items-center justify-between gap-3 cursor-pointer group transition-all duration-100 ${
+                                  isPlayingActive ? "bg-white/10" : "hover:bg-white/[0.02]"
                                 }`}
                               >
-                                <div className="flex items-center gap-2 max-w-[80%] truncate">
+                                <div className="flex items-center gap-3 truncate max-w-[80%]">
                                   <button
                                     onClick={(e) => toggleSelectTrack(track.id, e)}
-                                    className="text-slate-500 hover:text-sky-400 p-0.5 focus:outline-none"
+                                    className="text-slate-450 hover:text-white p-0.5 focus:outline-none cursor-pointer"
                                   >
                                     {isSelectedForDel ? (
-                                      <CheckSquare className="w-3.5 h-3.5 text-sky-400" />
+                                      <CheckSquare className="w-3.5 h-3.5 text-white" />
                                     ) : (
-                                      <Square className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400" />
+                                      <Square className="w-3.5 h-3.5 text-slate-700 group-hover:text-slate-400" />
                                     )}
                                   </button>
                                   <div className="truncate flex flex-col">
-                                    <span className={`text-[9.5px] font-mono font-bold uppercase truncate ${isPlayingActive ? "text-sky-400" : "text-slate-300"}`}>
+                                    <span className={`text-[12px] font-sans font-medium truncate ${isPlayingActive ? "text-white" : "text-slate-200"}`}>
                                       {track.name}
                                     </span>
-                                    <span className="text-[7px] font-mono text-slate-500 uppercase truncate">
-                                      ARTIST: {track.artist} // GENRE: {track.genre}
+                                    <span className="text-[10px] text-slate-500 font-light mt-0.5">
+                                      {track.artist ? `${track.artist}` : "Unknown Artist"}
                                     </span>
                                   </div>
                                 </div>
-                                <span className="text-[8.5px] font-mono text-slate-400">
-                                  {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : "0:00"}
+                                <span className="text-xs text-slate-500 font-sans font-medium">
+                                  {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
                                 </span>
                               </div>
                             );
@@ -501,61 +555,61 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
 
             {/* GENRE Grouping */}
             {viewCategory === "genre" && (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3">
                 {Object.keys(tracksByGenre).sort().map((genreName) => {
                   const groupTracks = tracksByGenre[genreName];
                   const isExpanded = !!expandedGroups[genreName];
                   return (
-                    <div key={genreName} className="border border-slate-800/80 rounded-lg overflow-hidden bg-slate-900/10">
+                    <div key={genreName} className="rounded-xl border border-white/10 bg-[#0f0a09]/50 overflow-hidden">
                       <div
                         onClick={() => toggleGroup(genreName)}
-                        className="p-3 bg-[#0a0f1b]/70 flex items-center justify-between border-b border-slate-800/60 cursor-pointer hover:bg-slate-900/50 transition-colors"
+                        className="p-4 bg-white/[0.015] flex items-center justify-between cursor-pointer hover:bg-white/[0.03] transition-colors"
                       >
-                        <div className="flex items-center gap-2">
-                          {isExpanded ? <ChevronDown className="w-3.5 h-3.5 text-sky-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-500" />}
-                          <Tag className="w-3.5 h-3.5 text-sky-500" />
-                          <span className="text-[10px] font-mono font-black uppercase text-slate-200">{genreName}</span>
+                        <div className="flex items-center gap-3 text-slate-200">
+                          {isExpanded ? <ChevronDown className="w-4 h-4 text-white" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                          <Tag className="w-4 h-4 text-white" />
+                          <span className="text-[13px] font-sans font-semibold tracking-wide text-white">{genreName}</span>
                         </div>
-                        <span className="text-[7.5px] font-mono text-slate-400 uppercase font-bold bg-[#0c1424] px-2 py-0.5 rounded border border-slate-800">
-                          {groupTracks.length} tracks
+                        <span className="text-[10px] text-slate-400 font-sans font-medium px-2 py-0.5 bg-white/[0.03] rounded-lg">
+                          {groupTracks.length === 1 ? "1 song" : `${groupTracks.length} songs`}
                         </span>
                       </div>
                       
                       {isExpanded && (
-                        <div className="p-1 px-1.5 flex flex-col gap-1.5 bg-[#03060f]/60">
+                        <div className="p-2 bg-black/[0.15] border-t border-white/5 flex flex-col gap-1">
                           {groupTracks.map((track) => {
                             const isSelectedForDel = selectedTrackIds.includes(track.id);
                             const isPlayingActive = track.id === currentPlayingTrackId;
                             return (
                               <div
                                 key={track.id}
-                                onClick={() => onPlayTrackById(track.id)}
-                                className={`p-2 rounded flex items-center justify-between gap-3 cursor-pointer group transition-all ${
-                                  isPlayingActive ? "bg-sky-500/5 border border-sky-500/20" : "hover:bg-slate-900/40"
+                                onClick={() => onPlayTrackById(track.id, groupTracks)}
+                                className={`p-3 rounded-lg flex items-center justify-between gap-3 cursor-pointer group transition-all duration-100 ${
+                                  isPlayingActive ? "bg-white/10" : "hover:bg-white/[0.02]"
                                 }`}
                               >
-                                <div className="flex items-center gap-2 max-w-[80%] truncate">
+                                <div className="flex items-center gap-3 truncate max-w-[80%]">
                                   <button
                                     onClick={(e) => toggleSelectTrack(track.id, e)}
-                                    className="text-slate-500 hover:text-sky-400 p-0.5 focus:outline-none"
+                                    className="text-slate-450 hover:text-white p-0.5 focus:outline-none cursor-pointer"
                                   >
                                     {isSelectedForDel ? (
-                                      <CheckSquare className="w-3.5 h-3.5 text-sky-400" />
+                                      <CheckSquare className="w-3.5 h-3.5 text-white" />
                                     ) : (
-                                      <Square className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400" />
+                                      <Square className="w-3.5 h-3.5 text-slate-700 group-hover:text-slate-400" />
                                     )}
                                   </button>
                                   <div className="truncate flex flex-col">
-                                    <span className={`text-[9.5px] font-mono font-bold uppercase truncate ${isPlayingActive ? "text-sky-400" : "text-slate-300"}`}>
+                                    <span className={`text-[12px] font-sans font-medium truncate ${isPlayingActive ? "text-white" : "text-slate-200"}`}>
                                       {track.name}
                                     </span>
-                                    <span className="text-[7px] font-mono text-slate-500 uppercase truncate">
-                                      ARTIST: {track.artist} // ALBUM: {track.album}
+                                    <span className="text-[10px] text-slate-500 font-light mt-0.5">
+                                      {track.artist ? `${track.artist}` : "Unknown Artist"} • {track.album ? `${track.album}` : "Unknown Album"}
                                     </span>
                                   </div>
                                 </div>
-                                <span className="text-[8.5px] font-mono text-slate-400">
-                                  {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : "0:00"}
+                                <span className="text-xs text-slate-500 font-sans font-medium">
+                                  {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
                                 </span>
                               </div>
                             );
@@ -567,9 +621,11 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                 })}
               </div>
             )}
-          </>
+          </div>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 };
+
+export default MyMusicView;

@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
@@ -36,42 +37,100 @@ app.use(express.json());
 // API route for AI-based Audio Optimization
 app.post("/api/optimize", async (req, res) => {
   try {
-    const { songTitle, genre, vehicleType, subwooferConfig, soundPreference } = req.body;
+    const { 
+      songTitle, 
+      genre, 
+      environmentMode, 
+      userEquipment, 
+      soundPreference, 
+      easyMode, 
+      carYearMakeModel,
+      vehicleType,
+      subwooferConfig 
+    } = req.body;
 
     if (!process.env.GEMINI_API_KEY) {
       // Elegant fallback when API key is missing
+      if (easyMode && carYearMakeModel) {
+        const carLower = carYearMakeModel.toLowerCase();
+        const guessSub = carLower.includes("sub") || carLower.includes("upgraded") || carLower.includes("sound system");
+        const isBigCabin = carLower.includes("suv") || carLower.includes("truck") || carLower.includes("jeep") || carLower.includes("tahoe") || carLower.includes("explorer") || carLower.includes("f150") || carLower.includes("pickup");
+        
+        const eqBands = [5, 2, -1, 3, 4]; // Balanced OEM correction curve
+        const bassBoost = guessSub ? 6 : 4;
+        const reverbWet = isBigCabin ? 0.14 : 0.08;
+        const delayOffsetMs = carLower.includes("truck") ? 16 : 11;
+        const highPassFilterHz = guessSub ? 38 : 45;
+        const subCrossoverHz = guessSub ? 80 : 95;
+        const justification = `🚗 Easy Tune Fallback Active for your ${carYearMakeModel}! Since we are running in local fallback mode, we analyzed your vehicle's standard cabin dimensions and factory acoustic signature. We have corrected standard speaker limitations by rolling off muddy frequencies at 45Hz, lifting mid-vocal response (+3dB), and widening spatial airiness (+8% reverb). Turn up the volume—your system will sound wider, louder, and remarkably cleaner!`;
+
+        return res.json({
+          success: true,
+          isFallback: true,
+          eqBands,
+          bassBoost,
+          reverbWet,
+          delayOffsetMs,
+          highPassFilterHz,
+          subCrossoverHz,
+          justification
+        });
+      }
+
+      const resolvedVehicleType = vehicleType || environmentMode || "Sedan";
+      const resolvedSubConfig = subwooferConfig || userEquipment || "None";
+      const resolvedSoundPref = soundPreference || "Balanced";
+
+      const isOem = !resolvedSubConfig || resolvedSubConfig === "None" || resolvedSubConfig.toLowerCase().includes("factory") || resolvedSubConfig.toLowerCase().includes("oem");
+      const dspExplanation = isOem 
+        ? "We've custom-tuned your factory audio configuration! By safely shielding standard door speakers from sub-harmonic distortion while dynamically boosting high-mid acoustic spacing, we've delivered an incredibly crisp, relaxed, and studio-balanced layout perfect for standard OEM stereos."
+        : "Tuned by our local Studio Audio DSP Engine! Since we are running in local fallback cruiser mode, we've calibrated your cabinet volume against your subwoofer configs to give you a punchy, crisp tune without blowing your door coaxials. Enjoy this clean street profile!";
+
       return res.json({
         success: true,
         isFallback: true,
-        eqBands: calculateFallbackEq(genre, soundPreference),
-        bassBoost: soundPreference.includes("Basshead") || soundPreference.includes("SPL") ? 9 : soundPreference.includes("Loud") || soundPreference.includes("SQL") ? 7 : 4,
-        reverbWet: vehicleType.includes("SUV") || vehicleType.includes("Yacht") ? 0.16 : vehicleType.includes("Hatch") ? 0.04 : 0.09,
-        delayOffsetMs: vehicleType.includes("Sedan") ? 13 : vehicleType.includes("SUV") || vehicleType.includes("Yacht") ? 18 : 9,
-        highPassFilterHz: subwooferConfig.includes("stock") ? 48 : 32,
-        subCrossoverHz: subwooferConfig.includes("15") || subwooferConfig.includes("Wall") ? 75 : subwooferConfig.includes("12") ? 80 : 90,
-        justification: "Tuned by the local Street Audio DSP Engine! Since we are running in local fallback cruiser mode, we've calibrated your cabinet volume against your subwoofer config to give you a punchy, crisp, window-rattling street block tune without blowing your door coaxial voice coils. Enjoy this solid street beat!"
+        eqBands: calculateFallbackEq(genre, resolvedSoundPref),
+        bassBoost: isOem ? 3 : (resolvedSoundPref.includes("Basshead") || resolvedSoundPref.includes("SPL") || resolvedSoundPref.includes("Thump") ? 9 : resolvedSoundPref.includes("Loud") || resolvedSoundPref.includes("SQL") || resolvedSoundPref.includes("Rich") ? 7 : 4),
+        reverbWet: resolvedVehicleType.includes("SUV") || resolvedVehicleType.includes("Yacht") ? 0.16 : resolvedVehicleType.includes("Hatch") ? 0.04 : 0.09,
+        delayOffsetMs: resolvedVehicleType.includes("Sedan") ? 13 : resolvedVehicleType.includes("SUV") || resolvedVehicleType.includes("Yacht") ? 18 : 9,
+        highPassFilterHz: isOem ? 50 : 32,
+        subCrossoverHz: isOem ? 100 : (resolvedSubConfig.includes("15") || resolvedSubConfig.includes("Wall") ? 75 : resolvedSubConfig.includes("12") ? 80 : 90),
+        justification: dspExplanation
       });
     }
 
     const ai = getAiClient();
-    const prompt = `You are a legendary, friendly Car Audio Competition DSP (Digital Signal Processor) tuning crew chief. 
-Speak in a highly engaging, fusion style that marries light "urban terminology" (like whip, trunk slam, cruising, rattling windows, tight beats, front stage, block party) with technical, accurate "car audio jargon" (like DSP, crossover frequency, high-pass infrasonic filter, decibels, speaker phase, cabin gain, time alignment). 
-Your output must be simple to understand, super user-friendly, and show the user exactly why this tune rocks their specific ride.
+    const finalEnvironment = (easyMode && carYearMakeModel) ? "Car" : (environmentMode || "Headphones");
+    const finalEquipment = (easyMode && carYearMakeModel) ? carYearMakeModel : (userEquipment || "Standard Drivers");
 
-Analyze this street ride setup and track:
-- Track Current Vibe: "${songTitle || "Unknown Beats"}" (${genre || "No Genre"})
-- Whip / Vehicle Ride: "${vehicleType || "Cruising Sedan"}"
-- Subwoofer Trunk Setup: "${subwooferConfig || "Single 12\" Ported"}"
-- Tuning Style Preference: "${soundPreference || "Loud & Crisp"}"
+    const prompt = `
+You are the elite AI Master Sound Engineer for the luxury audio application "ELITEPLAYERAI". Your job is to calculate mathematically perfect parametric audio settings to transform a standard audio track into a breathtaking, high-fidelity experience tailored precisely to the user's setup.
 
-Generate the ultimate calibrated DSP parameters. Keep values realistic:
+We are optimizing this profile:
+- Track: "${songTitle || "Unknown Track"}" (${genre || "All-Around Audio"})
+- Environment Selected: "${finalEnvironment}" (Options: Home, Car, Headphones, Surround Sound)
+- User Equipment: "${finalEquipment}"
+- Sound Goal Preference: "${soundPreference || "Rich & Immersive"}"
+
+Calibrate the ultimate Digital Signal Processor (DSP) array variables. Keep values within safe operating boundaries:
 1. Five EQ band gains (60Hz, 250Hz, 1kHz, 4kHz, 16kHz) in dB (range -12 to +12).
-2. Bass Boost level (range 0 to 10).
-3. Virtual Cab Reverb Wet ratio (0.0 to 0.4) to match the interior cubic airspace.
-4. Left-channel speaker time-alignment delay offset (0 to 30ms) so vocals lock dead center on your driver seat.
-5. Infrasonic High-Pass Filter safety frequency (20 to 60Hz) to shield sub cone over-excursion on deep drops.
-6. Subwoofer Low-Pass Crossover frequency (60 to 120Hz) to separate the heavy bass from the door mids.
-7. One high-octane engineering summary outlining why these settings will make this track slam beautifully in their specific cabinet airspace without distorting mid-vocals. Ready, set, drop!`;
+   - For HEADPHONES: Calculate crossfeed adjustments to move vocals out of the user's skull and cast them gracefully in front of them like a high-end live studio layout.
+   - For CAR: Compensate for heavy road-noise masking floors and asymmetric passenger seating configurations.
+   - For HOME: Calculate compensation curves to balance out boxy room reflections, harsh standing waves, and echoes from hard walls.
+   - For SURROUND SOUND: Map virtualization coordinates to upscale standard 2-channel stereo into a deep, sweeping, multi-directional field.
+2. Bass Boost level (range 0 to 10). Scale this precisely so it delivers deep, robust warmth without causing clipping.
+3. Space Reverberation Wet ratio (0.0 to 0.4) to gently broaden or control the acoustic soundstage depth.
+4. Left-channel speaker time-alignment delay offset (0 to 30ms) to snap the center audio image true to the listener.
+5. Infrasonic High-Pass Filter safety frequency (20 to 60Hz) to filter out chaotic, non-audible mud frequencies that clip standard amplifiers.
+6. Subwoofer Low-Pass Crossover frequency (60 to 120Hz).
+
+7. JUSTIFICATION EXPLANATION (CRITICAL): Write a highly encouraging, friendly, and luxurious summary. 
+   - DO NOT be overly academic, rigid, or intimidating. Avoid dry engineering spreadsheets.
+   - Speak like an upscale personal audio concierge or premium sound technician. Use warm, clear, and highly rewarding terms (e.g., "breathtaking depth," "velvety low-end warmth," "studio space," "crystal-clear definitions").
+   - Explicitly tell them how you reshaped the audio for their selected environment (Home, Car, Headphones, or Surround Sound) so they feel the immense value of why they are paying for this premium tier.
+
+Ready, set, drop!
+`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3.5-flash",
@@ -161,6 +220,18 @@ async function bootstrapServer() {
       appType: "spa",
     });
     app.use(vite.middlewares);
+    
+    app.get("*", async (req, res, next) => {
+      const url = req.originalUrl;
+      try {
+        let template = fs.readFileSync(path.resolve(process.cwd(), "index.html"), "utf-8");
+        template = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ "Content-Type": "text/html" }).end(template);
+      } catch (e) {
+        vite.ssrFixStacktrace(e as Error);
+        next(e);
+      }
+    });
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));

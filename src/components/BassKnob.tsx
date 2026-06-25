@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 
 interface BassKnobProps {
   value: number; // 0 to 100
@@ -17,52 +17,46 @@ export const BassKnob: React.FC<BassKnobProps> = ({
 }) => {
   const knobRef = useRef<HTMLDivElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const valueRef = useRef<number>(value);
+  const centerRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Synchronize internal valueRef when state changes from parent
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
 
   // Degrees of rotation: from -135deg (min) to +135deg (max)
   const percent = (value - min) / (max - min);
   const rotationDegrees = -135 + percent * 270;
 
-  // Converts click/move client coordinates into the dial's corresponding percentage (0-100)
-  const getAngleAndValue = (clientX: number, clientY: number, dragging = false): number => {
-    if (!knobRef.current) return value;
-    const rect = knobRef.current.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-
-    // DX and DY relative to the center of the knob
+  const updateValueFromCoords = (clientX: number, clientY: number) => {
+    const { x: centerX, y: centerY } = centerRef.current;
     const dx = clientX - centerX;
     const dy = clientY - centerY;
 
-    // Angle relative to 12 o'clock (straight up) which maps naturally to a -180 to 180 range
-    let angleDeg = Math.atan2(dx, -dy) * (180 / Math.PI);
+    const radius = Math.sqrt(dx * dx + dy * dy);
+    // Ignore moves extremely close to center to avoid noisy angular jumps
+    if (radius < 8) return;
 
-    // Active zone is -135deg to +135deg. Inside the dead zone (underneath), 
-    // we use a physical barrier using the current value to prevent instantaneous jump-crossing.
-    const isDeadZone = angleDeg < -135 || angleDeg > 135;
+    // Angle relative to straight up (0 deg is top, positive is right/clockwise, negative is left/counter-clockwise)
+    let angle = Math.atan2(dx, -dy) * (180 / Math.PI); // -180 to 180
 
-    if (isDeadZone) {
-      if (value > (min + max) / 2) {
-        return max;
+    let targetPercent = 0;
+    if (angle >= -135 && angle <= 135) {
+      targetPercent = (angle + 135) / 270;
+    } else {
+      // In the bottom dead-zone (absolute angle > 135)
+      // We clamp to 100% (1) or 0% (0) based on which side the previous value was closer to
+      if (valueRef.current > (min + max) / 2) {
+        targetPercent = 1;
       } else {
-        return min;
+        targetPercent = 0;
       }
     }
 
-    // Map the -135 to +135 degree range onto min to max
-    const pct = (angleDeg + 135) / 270;
-    let computedVal = min + pct * (max - min);
-    computedVal = Math.max(min, Math.min(max, computedVal));
-    const nextVal = Math.round(computedVal);
-
-    // Barrier stop check: If dragging, prevent huge instantaneous jumps across the bottom boundary.
-    if (dragging) {
-      const diff = Math.abs(nextVal - value);
-      if (diff > (max - min) * 0.5) {
-        return value;
-      }
-    }
-
-    return nextVal;
+    const nextVal = min + targetPercent * (max - min);
+    valueRef.current = nextVal;
+    onChange(Math.round(nextVal));
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -70,15 +64,19 @@ export const BassKnob: React.FC<BassKnobProps> = ({
     setIsDragging(true);
     knobRef.current?.setPointerCapture(e.pointerId);
 
-    // Calculate rotation angle immediately and turn dial
-    const nextVal = getAngleAndValue(e.clientX, e.clientY, false);
-    onChange(nextVal);
+    if (!knobRef.current) return;
+    const rect = knobRef.current.getBoundingClientRect();
+    centerRef.current = {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
+
+    updateValueFromCoords(e.clientX, e.clientY);
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDragging) return;
-    const nextVal = getAngleAndValue(e.clientX, e.clientY, true);
-    onChange(nextVal);
+    if (!isDragging || disabled) return;
+    updateValueFromCoords(e.clientX, e.clientY);
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -102,61 +100,68 @@ export const BassKnob: React.FC<BassKnobProps> = ({
       {/* Outer Dial Panel */}
       <div
         id="bass-knob-container"
-        className="relative flex items-center justify-center p-5 rounded-full border-2 border-blue-500/50 bg-[#091122] shadow-[0_0_20px_rgba(58,219,255,0.45),inset_0_2px_10px_rgba(58,219,255,0.15)]"
+        className="relative flex items-center justify-center p-5 rounded-full border-2 border-slate-750 bg-[#0e0807] shadow-[0_12px_35px_rgba(0,0,0,0.9),inset_0_2px_12px_rgba(255,255,255,0.08)]"
         style={{ width: "190px", height: "190px" }}
       >
         {/* Glow behind active dial */}
         <div 
           className="absolute inset-4 rounded-full blur-2xl opacity-60 transition-all duration-300 pointer-events-none animate-pulse"
           style={{
-            backgroundColor: percent === 1 ? "rgba(58, 219, 255, 0.85)" : "rgba(58, 219, 255, 0.55)",
+            backgroundColor: percent === 1 ? "rgba(255, 255, 255, 0.75)" : "rgba(255, 255, 255, 0.35)",
             boxShadow: percent === 1 
-              ? "0 0 45px rgba(58, 219, 255, 0.95)" 
-              : "0 0 30px rgba(58, 219, 255, 0.75)"
+              ? "0 0 45px rgba(255, 255, 255, 0.85)" 
+              : "0 0 30px rgba(255, 255, 255, 0.45)"
           }}
         />
 
         {/* Surrounding illuminated Bass LED collar path */}
         <div
-          className="absolute rounded-full border border-sky-400/40 pointer-events-none animate-pulse"
+          className="absolute rounded-full border border-white/20 pointer-events-none animate-pulse"
           style={{
             width: "150px",
             height: "150px",
             boxShadow: percent === 1
-              ? "0 0 25px rgba(58, 219, 255, 0.95)"
-              : "0 0 15px rgba(58, 219, 255, 0.75)"
+              ? "0 0 25px rgba(255, 255, 255, 0.85)"
+              : "0 0 15px rgba(255, 255, 255, 0.45)"
           }}
         />
 
         {/* LED progress ticks circular ring */}
-        <svg className="absolute inset-0 w-full h-full transform -rotate-90 pointer-events-none" viewBox="0 0 100 100">
+        <svg className="absolute inset-0 w-full h-full transform pointer-events-none" viewBox="0 0 100 100">
+          {/* Faint white background track covering the 270-degree range */}
           <circle
             cx="50"
             cy="50"
-            r="43"
+            r="42"
             fill="none"
-            stroke="#101726"
-            strokeWidth="3.5"
+            stroke="rgba(255, 255, 255, 0.08)"
+            strokeWidth="3"
+            strokeDasharray={`${2 * Math.PI * 42 * 0.75} ${2 * Math.PI * 42}`}
+            strokeLinecap="round"
+            transform="rotate(135 50 50)"
           />
+          {/* Active level status ring with vibrant white neon glow */}
           <circle
             id="active-knob-dial-progress"
             cx="50"
             cy="50"
-            r="43"
+            r="42"
             fill="none"
-            stroke="#3adbff"
+            stroke="#ffffff"
             strokeWidth="4"
-            strokeDasharray={percent > 0 ? `${percent * (2 * Math.PI * 43)} 999` : "0 999"}
+            strokeDasharray={`${percent * (2 * Math.PI * 42 * 0.75)} ${2 * Math.PI * 42}`}
             strokeLinecap="round"
-            className={`transition-all duration-75 ${
-              percent === 1 
-                ? "drop-shadow-[0_0_15px_rgba(58,219,255,0.95)]" 
-                : "drop-shadow-[0_0_6px_rgba(58,219,255,0.7)]"
-            }`}
+            transform="rotate(135 50 50)"
+            className="transition-all duration-75"
+            style={{
+              filter: percent > 0 
+                ? "drop-shadow(0 0 5px rgba(255, 255, 255, 0.95)) drop-shadow(0 0 10px rgba(255, 255, 255, 0.5))"
+                : "none"
+            }}
           />
         </svg>
 
-        {/* Solid Shiny Chrome Rotary Dial Wheel: Enlarged (w-36 h-36) */}
+        {/* Solid Brushed Chrome Cylindrical Rotary Dial Wheel */}
         <div
           ref={knobRef}
           onPointerDown={handlePointerDown}
@@ -170,71 +175,76 @@ export const BassKnob: React.FC<BassKnobProps> = ({
           aria-valuenow={value}
           aria-label="Bass Booster Control Knob"
           className={`relative w-36 h-36 rounded-full flex items-center justify-center cursor-pointer focus:outline-none transition-all duration-150 ${
-            disabled ? "opacity-40 cursor-not-allowed" : "focus:ring-2 focus:ring-sky-300 hover:scale-[1.03] hover:shadow-[0_0_28px_rgba(58,219,255,0.55)]"
+            disabled ? "opacity-40 cursor-not-allowed" : "focus:ring-2 focus:ring-white/40 hover:scale-[1.02]"
           }`}
           style={{ 
             touchAction: "none",
-            background: "linear-gradient(135deg, #f8fafc 0%, #cbd5e1 15%, #94a3b8 35%, #475569 50%, #1e293b 65%, #94a3b8 80%, #f8fafc 100%)",
-            boxShadow: "0 10px 20px rgba(0,0,0,0.85), inset 0 2px 4px rgba(255,255,255,0.85), inset 0 -4px 12px rgba(0,0,0,0.65)"
+            // The outer part creates a heavy cylindrical side/edge profile (the dark/light beveled chrome sides of the knob)
+            background: "linear-gradient(135deg, #f1f5f9 0%, #cbd5e1 20%, #94a3b8 40%, #475569 60%, #1e293b 80%, #cbd5e1 100%)",
+            boxShadow: `
+              0 12px 24px rgba(0, 0, 0, 0.7),
+              inset 0 2px 3px rgba(255, 255, 255, 0.95),
+              inset 0 -6px 12px rgba(0, 0, 0, 0.85)
+            `
           }}
         >
-          {/* Beveled Polished Chrome Ring */}
-          <div className="absolute inset-1.5 rounded-full pointer-events-none bg-gradient-to-tr from-[#94a3b8] via-white via-[#e2e8f0] to-[#334155] opacity-90 border border-white/45 shadow-inner" />
+          {/* Beveled Polished Chrome Edge of the Cylinder */}
+          <div className="absolute inset-[2px] rounded-full pointer-events-none bg-gradient-to-tr from-[#94a3b8] via-[#f1f5f9] to-[#334155] border border-white/50 shadow-[inset_0_2px_4px_rgba(255,255,255,0.8),0_4px_8px_rgba(0,0,0,0.5)]" />
           
-          {/* Inner Circular Cap Face with Radial Brushed Reflection */}
+          {/* Main Dial Face: Realistic Radial Brushed Chrome/Aluminum using a fine Conic Gradient */}
           <div 
-            className="absolute inset-[13px] rounded-full pointer-events-none transition-transform duration-75"
+            className="absolute inset-[6px] rounded-full pointer-events-none transition-transform duration-75"
             style={{
               transform: `rotate(${rotationDegrees}deg)`,
-              background: "radial-gradient(circle, #f1f5f9 0%, #cbd5e1 35%, #475569 75%, #19253c 100%)",
-              boxShadow: "inset 0 3px 6px rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.5)"
+              // Conic gradient produces the anisotropic pie-slice metallic reflections seen in the photo
+              background: "conic-gradient(from 0deg, #f8fafc, #cbd5e1 30deg, #e2e8f0 60deg, #64748b 110deg, #94a3b8 140deg, #f8fafc 180deg, #cbd5e1 210deg, #e2e8f0 240deg, #475569 290deg, #94a3b8 320deg, #f8fafc 360deg)",
+              boxShadow: `
+                inset 0 3px 5px rgba(255, 255, 255, 0.9),
+                inset 0 -3px 8px rgba(0, 0, 0, 0.6),
+                0 4px 8px rgba(0, 0, 0, 0.4)
+              `
             }}
           >
-            {/* Fine Concentric Lathe Sound-grooves */}
-            <div className="absolute inset-1.5 rounded-full border border-white/10" />
-            <div className="absolute inset-3.5 rounded-full border border-white/5" />
-            <div className="absolute inset-5.5 rounded-full border border-black/15" />
-            
-            {/* Center shiny metal bezel */}
-            <div className="absolute inset-[24px] rounded-full bg-gradient-to-tr from-[#475569] via-white to-[#cbd5e1] opacity-75 shadow-md" />
-            <div className="absolute inset-[27px] rounded-full bg-[#0b0f19] opacity-90" />
- 
-             {/* Glowing High-end Dial Indicator Line */}
-            <div
-              className="absolute top-1.5 bottom-1/2 left-1/2 -ml-[1px] w-1 rounded bg-sky-400 shadow-md origin-bottom pointer-events-none transition-colors"
-              style={{
-                backgroundColor: "#3adbff",
-                boxShadow: percent === 1 
-                  ? "0 0 15px #3adbff, 0 0 4px #ffffff" 
-                  : "0 0 8px #3adbff, 0 0 2px #ffffff"
-              }}
-            />
+            {/* Fine microscopic lathe lines inside the dial face for a high-end satin look */}
+            <div className="absolute inset-[4px] rounded-full border border-white/10" />
+            <div className="absolute inset-[10px] rounded-full border border-white/5" />
+            <div className="absolute inset-[16px] rounded-full border border-black/15" />
+            <div className="absolute inset-[22px] rounded-full border border-black/10" />
 
-            {/* Tactile Jewel Indicator Dot for setting position of the knob */}
+            {/* Glowing Backlit Selector Dot (Indented / Milled and LED illuminated) */}
             <div 
-              className="absolute w-3.5 h-3.5 rounded-full border-2 border-slate-900 shadow-lg transition-colors"
+              className="absolute w-5 h-5 rounded-full transition-all duration-150 flex items-center justify-center"
               style={{
-                top: "12px",
-                left: "calc(50% - 7px)",
-                backgroundColor: "#38bdf8",
-                boxShadow: percent === 1 
-                  ? "0 0 12px #3adbff, inset 0 1px 2px #fff" 
-                  : "0 0 8px #3adbff, inset 0 1px 2px #fff"
+                top: "10px",
+                left: "calc(50% - 10px)",
+                // The outer ring of the indicator matches the physical metallic indentation profile
+                background: "linear-gradient(135deg, #1e293b 0%, #cbd5e1 100%)",
+                boxShadow: percent === 1
+                  ? "0 0 16px 6px rgba(255, 255, 255, 0.95), 0 0 32px 12px rgba(255, 255, 255, 0.6), inset 0 2px 3px rgba(0,0,0,0.8)"
+                  : "0 0 10px 3px rgba(255, 255, 255, 0.8), 0 0 20px 6px rgba(255, 255, 255, 0.45), inset 0 2px 3px rgba(0,0,0,0.8)"
               }}
-            />
+            >
+              {/* Inner glowing white LED core shining through the metal indent */}
+              <div 
+                className="w-2 h-2 rounded-full shadow-[0_0_6px_#fff]" 
+                style={{
+                  background: "radial-gradient(circle, #ffffff 40%, #e2e8f0 100%)",
+                }}
+              />
+            </div>
           </div>
         </div>
       </div>
 
       {/* Numerical Value read-out */}
       <div className="mt-4 text-center">
-        <span className="text-[10px] uppercase tracking-widest font-mono text-slate-400 block font-black">Bass Level</span>
+        <span className="text-[10px] uppercase tracking-widest font-sans text-slate-400 block font-semibold">Bass Level</span>
         <span 
-          className="text-xl font-black font-mono transition-all duration-150 text-[#3adbff]"
+          className="text-xl font-semibold font-sans transition-all duration-150 text-white"
           style={{
             textShadow: percent === 1 
-              ? "0 0 15px rgba(58, 219, 255, 0.95), 0 0 4px rgba(58, 219, 255, 0.45)" 
-              : "0 0 6px rgba(58, 219, 255, 0.5)"
+              ? "0 0 15px rgba(255,255,255,0.9), 0 0 4px rgba(255,255,255,0.4)" 
+              : "0 0 6px rgba(255,255,255,0.5)"
           }}
         >
           {value}%
