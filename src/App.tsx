@@ -43,6 +43,7 @@ import { AuthView } from "./components/AuthView";
 import { MyMusicView } from "./components/MyMusicView"; 
 import { UpgradeView } from "./components/UpgradeView";
 import { AiEnhancementView } from "./components/AiEnhancementView";
+import { VideoView } from "./components/VideoView";
 import { motion, AnimatePresence } from "motion/react"; 
 
 // Firebase Integrations Block 
@@ -200,7 +201,7 @@ const BUILTIN_PRESETS: Preset[] = [
 ]; 
 
 export default function App() {   
-  const [currentView, setCurrentView] = useState<"landing" | "auth" | "player" | "mymusic" | "privacy" | "agreement" | "upgrade" | "ai_enhancement">("landing");   
+  const [currentView, setCurrentView] = useState<"landing" | "auth" | "player" | "mymusic" | "privacy" | "agreement" | "upgrade" | "ai_enhancement" | "video">("landing");   
   const [subscriptionTier, setSubscriptionTier] = useState<"free" | "paid">(
     () => (localStorage.getItem("thumplayer_sub_tier") as "free" | "paid") || "free"
   );
@@ -450,7 +451,7 @@ export default function App() {
   useEffect(() => {     
     if (!authLoading) {
       if (!isLoggedIn) {       
-        const protectedViews = ["player", "mymusic", "upgrade", "ai_enhancement"];
+        const protectedViews = ["player", "mymusic", "upgrade", "ai_enhancement", "video"];
         if (protectedViews.includes(currentView)) {
           setCurrentView("auth");
         }
@@ -709,8 +710,8 @@ export default function App() {
   useEffect(() => {
     const handleReturnToApp = () => {
       // If there's an active track, we are not viewing the player page, and it's not dismissed
-      // Do not automatically redirect if the user is on the mymusic view (such as after file uploads)
-      if (currentTrack && currentView !== "player" && currentView !== "mymusic" && !isMinimizedClosed) {
+      // Do not automatically redirect if the user is on the mymusic or video view (such as after file uploads)
+      if (currentTrack && currentView !== "player" && currentView !== "mymusic" && currentView !== "video" && !isMinimizedClosed) {
         setCurrentView("player");
       }
     };
@@ -772,9 +773,7 @@ export default function App() {
     if (audioRef.current) {       
       audioRef.current.volume = isMuted ? 0 : volume;     
     }   
-  }, [volume, isMuted]);   
-
-  const handleAudioFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  }, [volume, isMuted]);   const handleAudioFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !currentUser) {
       setUploadError("Please check authentication session or select a valid audio file.");
@@ -805,8 +804,8 @@ export default function App() {
       const storagePath = `tracks/${currentUser.uid}/${timestamp}_${file.name}`;
       const storageRef = ref(storage, storagePath);
 
-      // 4. Fire the Resumable Streaming Connection Upload Link
-      const uploadTask = uploadBytesResumable(storageRef, file);
+      // 4. Fire the Resumable Streaming Connection Upload Link with correct audio/mpeg content-type metadata
+      const uploadTask = uploadBytesResumable(storageRef, file, { contentType: "audio/mpeg" });
 
       uploadTask.on(
         "state_changed",
@@ -828,13 +827,26 @@ export default function App() {
             // 5. Fetch Secure Live CDN URL from Storage Bucket
             const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
 
+            // Determine genre based on filename
+            let genre = "Bass Accent";
+            const fileLower = file.name.toLowerCase();
+            if (fileLower.includes("rap") || fileLower.includes("hip") || fileLower.includes("beat")) {
+              genre = "Hip Hop / Rap";
+            } else if (fileLower.includes("rock") || fileLower.includes("metal") || fileLower.includes("guitar")) {
+              genre = "Rock / Metal";
+            } else if (fileLower.includes("electro") || fileLower.includes("edm") || fileLower.includes("house") || fileLower.includes("dance")) {
+              genre = "EDM / Electronic";
+            } else if (fileLower.includes("pop") || fileLower.includes("rnb") || fileLower.includes("vocal")) {
+              genre = "Pop Vocal";
+            }
+
             // 6. Save File Pointers to Firestore Document Database
             const trackDocData = {
               uid: currentUser.uid,
               name: metadata.title || file.name.replace(/\.[^/.]+$/, ""),
               artist: metadata.artist || "Anonymous Streamer",
               album: metadata.album || "Cloud Catalog Single",
-              genre: "Bass Head Trap",
+              genre: genre,
               duration: 180, // Default fallback metadata parameter
               url: downloadUrl,
               imageUrl: metadata.imageUrl || "https://images.unsplash.com/photo-1545454675-3531b543be5d?w=500&auto=format&fit=crop&q=80",
@@ -842,12 +854,16 @@ export default function App() {
               createdAt: new Date().toISOString()
             };
 
-            await addDoc(collection(db, "tracks"), trackDocData);
+            const docRef = await addDoc(collection(db, "tracks"), trackDocData);
 
             // 7. Success Finalization Flags reset
             setUploadSuccess(`"${trackDocData.name}" synced to audio cloud locker successfully!`);
             setIsUploading(false);
             setUploadProgress(null);
+            setLoadedTrackId(docRef.id);
+            setIsPlaying(false);
+            stopSyntheticOsc();
+            setCurrentView("mymusic");
             
             // Auto wipe notification notice after 4 seconds
             setTimeout(() => setUploadSuccess(""), 4000);
@@ -868,9 +884,12 @@ export default function App() {
   };
 
   const handleCloudFileUpload = handleAudioFileUpload;   
- 
+  
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {     
-    if (!e.target.files) return;     
+    if (!e.target.files || !currentUser) {
+      setUploadError("Please check authentication session or select valid audio files.");
+      return;
+    }     
     const files = Array.from(e.target.files) as File[];          
     
     // Check Free Tier track upload restrictions safely
@@ -882,48 +901,111 @@ export default function App() {
       return;
     }
  
-    const scanPromises = files.map(async (file: File, idx) => {       
-      const meta = await scanMetadata(file);              
-      let genre = "Bass Accent";       
-      const fileLower = file.name.toLowerCase();       
-      if (fileLower.includes("rap") || fileLower.includes("hip") || fileLower.includes("beat")) {         
-        genre = "Hip Hop / Rap";       
-      } else if (fileLower.includes("rock") || fileLower.includes("metal") || fileLower.includes("guitar")) {         
-        genre = "Rock / Metal";       
-      } else if (fileLower.includes("electro") || fileLower.includes("edm") || fileLower.includes("house") || fileLower.includes("dance")) {         
-        genre = "EDM / Electronic";       
-      } else if (fileLower.includes("pop") || fileLower.includes("rnb") || fileLower.includes("vocal")) {         
-        genre = "Pop Vocal";       
-      }              
-      return {         
-        id: `local-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,         
-        name: meta.title,         
-        artist: meta.artist,         
-        album: meta.album,         
-        duration: 0,         
-        file: file,         
-        genre: genre,
-        imageUrl: meta.imageUrl || "",
-        albumArtUrl: meta.albumArtUrl || meta.imageUrl || null
-      } as Track;     
-    });          
-    const newTracks = await Promise.all(scanPromises);          
-    if (newTracks.length > 0) {       
-      const filteredPlaylist = playlist.filter(t => !t.id.startsWith("sample-") || playlist.length > 10);       
-      const updatedList = [...filteredPlaylist, ...newTracks];       
-      setPlaylist(updatedList);              
-      const firstNewIdx = updatedList.indexOf(newTracks[0]);       
-      setCurrentTrackIndex(firstNewIdx);       
-      setLoadedTrackId(newTracks[0].id);
-      setIsPlaying(false);       
-      stopSyntheticOsc();     
-      setCurrentView("mymusic");
+    setIsUploading(true);
+    setUploadProgress(0);
+    setUploadError("");
+    setUploadSuccess("");
 
-      const audio = audioRef.current;
-      if (audio) {
-        loadTrackSource(audio, newTracks[0]);
+    try {
+      let successCount = 0;
+      let firstUploadedTrackId: string | null = null;
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        console.log(`Uploading file ${i + 1}/${files.length}: ${file.name}`);
+        
+        // Scan Audio Metadata on the Client Layer
+        const metadata = await scanMetadata(file);
+
+        // Formulate Unique Cloud Path inside Storage Bucket
+        const timestamp = Date.now();
+        const storagePath = `tracks/${currentUser.uid}/${timestamp}_${file.name}`;
+        const storageRef = ref(storage, storagePath);
+
+        // Fire the Resumable Streaming Connection Upload Link with correct audio/mpeg content-type metadata
+        const uploadTask = uploadBytesResumable(storageRef, file, { contentType: "audio/mpeg" });
+
+        await new Promise<void>((resolveUpload, rejectUpload) => {
+          uploadTask.on(
+            "state_changed",
+            (snapshot) => {
+              // Calculate current chunk completion progress percentage
+              const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+              // Set progress relative to overall files
+              const totalProgress = Math.round(((i / files.length) * 100) + (progress / files.length));
+              setUploadProgress(totalProgress);
+              console.log(`Uploading file ${i + 1}/${files.length} to Firebase: ${Math.round(progress)}% complete`);
+            },
+            (error) => {
+              console.error("Firebase Storage Upload Pipeline Aborted:", error);
+              rejectUpload(error);
+            },
+            async () => {
+              try {
+                // Fetch Secure Live CDN URL from Storage Bucket
+                const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+
+                // Determine genre based on filename
+                let genre = "Bass Accent";
+                const fileLower = file.name.toLowerCase();
+                if (fileLower.includes("rap") || fileLower.includes("hip") || fileLower.includes("beat")) {
+                  genre = "Hip Hop / Rap";
+                } else if (fileLower.includes("rock") || fileLower.includes("metal") || fileLower.includes("guitar")) {
+                  genre = "Rock / Metal";
+                } else if (fileLower.includes("electro") || fileLower.includes("edm") || fileLower.includes("house") || fileLower.includes("dance")) {
+                  genre = "EDM / Electronic";
+                } else if (fileLower.includes("pop") || fileLower.includes("rnb") || fileLower.includes("vocal")) {
+                  genre = "Pop Vocal";
+                }
+
+                // Save File Pointers to Firestore Document Database
+                const trackDocData = {
+                  uid: currentUser.uid,
+                  name: metadata.title || file.name.replace(/\.[^/.]+$/, ""),
+                  artist: metadata.artist || "Anonymous Streamer",
+                  album: metadata.album || "Cloud Catalog Single",
+                  genre: genre,
+                  duration: 180, // Default fallback metadata parameter
+                  url: downloadUrl,
+                  imageUrl: metadata.imageUrl || "https://images.unsplash.com/photo-1545454675-3531b543be5d?w=500&auto=format&fit=crop&q=80",
+                  albumArtUrl: metadata.albumArtUrl || null,
+                  createdAt: new Date().toISOString()
+                };
+
+                const docRef = await addDoc(collection(db, "tracks"), trackDocData);
+                if (!firstUploadedTrackId) {
+                  firstUploadedTrackId = docRef.id;
+                }
+                successCount++;
+                resolveUpload();
+              } catch (dbErr: any) {
+                console.error("Failed to catalog track layout document inside Firestore:", dbErr);
+                rejectUpload(dbErr);
+              }
+            }
+          );
+        });
       }
-    }   
+
+      setUploadSuccess(`Successfully uploaded ${successCount} track(s) to your cloud library!`);
+      setIsUploading(false);
+      setUploadProgress(null);
+      setIsPlaying(false);
+      stopSyntheticOsc();
+      setCurrentView("mymusic");
+      if (firstUploadedTrackId) {
+        setLoadedTrackId(firstUploadedTrackId);
+      }
+
+      // Auto wipe notification notice after 4 seconds
+      setTimeout(() => setUploadSuccess(""), 4000);
+      
+    } catch (err: any) {
+      console.error("Critical tracking crash during file compilation process:", err);
+      setUploadError(`Failed to initialize storage pipe infrastructure: ${err.message || err}`);
+      setIsUploading(false);
+      setUploadProgress(null);
+    }
   };   
 
   const loadTrackSource = (audio: HTMLAudioElement, track: Track) => {     
@@ -1767,7 +1849,7 @@ export default function App() {
               {/* Logo at the top - scaled up */}
               <div className="flex flex-col items-center justify-center py-5 border-b-2 border-[#1f3050]/65 mb-4 px-4 bg-black/35 rounded-t-2xl gap-2.5">
                 <img src="/logo.png" alt="" referrerPolicy="no-referrer" className="w-16 h-16 rounded-xl object-cover shadow-[0_0_15px_rgba(255,255,255,0.2)] mb-1" />
-                <span className="text-lg font-sans font-semibold tracking-[0.2em] text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.65)] select-none text-center">QUANTUMAUDIOAI</span>
+                <span className="text-lg font-sans font-semibold tracking-[0.2em] text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.65)] select-none text-center">QUANTUMPLAYERAI</span>
                 {currentUser?.email === "jkoehler319@gmail.com" && (
                   <div className="flex flex-col items-center gap-1 bg-amber-500/10 border border-amber-500/30 p-2.5 rounded-2xl w-full text-center shadow-[0_0_15px_rgba(245,158,11,0.08)]">
                     <span className="text-[9px] font-sans font-bold uppercase tracking-widest text-amber-400">ADMINISTRATOR PROFILE</span>
@@ -1793,6 +1875,24 @@ export default function App() {
                 }`}
               >
                 Audio Player
+              </button>
+
+              <button
+                onClick={() => {
+                  if (isLoggedIn) {
+                    setCurrentView("video");
+                  } else {
+                    setCurrentView("auth");
+                  }
+                  setIsOpen(false);
+                }}
+                className={`w-full text-left font-sans font-medium uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-3.5 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
+                  currentView === "video"
+                    ? "bg-white/10 border-2 border-slate-350 text-white shadow-[0_0_12px_rgba(255,255,255,0.25)] font-semibold"
+                    : "text-slate-200 hover:bg-slate-900/65 hover:text-white hover:pl-5"
+                }`}
+              >
+                AI 4K Video Player
               </button>
 
               <button
@@ -1954,14 +2054,14 @@ export default function App() {
 
       <div className="flex items-center justify-center gap-2 mt-4 mb-2">
         <img src="/logo.png" alt="" referrerPolicy="no-referrer" className="w-5 h-5 rounded object-cover shadow-[0_0_6px_rgba(255,255,255,0.2)]" />
-        <span className="text-base font-sans font-semibold tracking-[0.25em] text-white select-none block drop-shadow-[0_0_12px_rgba(255,255,255,0.4)]">QUANTUMAUDIOAI</span>
+        <span className="text-base font-sans font-semibold tracking-[0.25em] text-white select-none block drop-shadow-[0_0_12px_rgba(255,255,255,0.4)]">QUANTUMPLAYERAI</span>
       </div>
       {authLoading ? (
         <div id="auth-loading-screen" className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col justify-center items-center min-h-screen relative z-30">
           <div className="text-center p-8 bg-stone-950/95 border-2 border-white/40 rounded-[2rem] shadow-[0_0_50px_rgba(255,255,255,0.18)] max-w-sm w-full mx-auto select-none backdrop-blur-md">
             <div className="flex flex-col items-center justify-center gap-3 mb-6 animate-pulse">
               <img src="/logo.png" alt="" referrerPolicy="no-referrer" className="w-12 h-12 rounded-xl object-cover shadow-[0_0_10px_rgba(255,255,255,0.3)] animate-pulse" />
-              <span className="text-base font-sans font-semibold tracking-[0.25em] text-white select-none">QUANTUMAUDIOAI</span>
+              <span className="text-base font-sans font-semibold tracking-[0.25em] text-white select-none">QUANTUMPLAYERAI</span>
             </div>
             
             <div className="flex items-center justify-center gap-3 mt-4 mb-2">
@@ -1985,22 +2085,11 @@ export default function App() {
         <>
           {currentView === "landing" && (         
         <div className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col justify-between items-center relative min-h-screen">                      
-          <div className="absolute top-4 right-4 z-50">             
-            <button               
-              onClick={() => {                 
-                if (currentUser) setCurrentView("player");                 
-                else setCurrentView("auth");               
-              }}               
-              className="px-4 py-2 hover:brightness-110 active:scale-95 duration-100 transition-all font-sans text-[10px] font-semibold tracking-widest uppercase rounded-lg border-2 border-slate-400 bg-white/10 text-white shadow-[0_0_15px_rgba(255,255,255,0.25)] cursor-pointer flex items-center gap-1"             
-            >               
-              {currentUser ? "Enter App" : "Log In"} <span className="text-xs"> </span>             
-            </button>           
-          </div>           
           <div className="my-auto flex flex-col items-center justify-center text-center w-full max-w-md py-6">                          
             <div className="relative w-full max-w-[320px] mx-auto mb-8 overflow-hidden group rounded-3xl">               
               <img 
                 src="/logo.png" 
-                alt="QUANTUMAUDIOAI Logo" 
+                alt="QUANTUMPLAYERAI Logo" 
                 referrerPolicy="no-referrer"
                 className="w-full h-auto aspect-square rounded-3xl object-cover transition-transform duration-500 group-hover:scale-105 shadow-[0_15px_40px_rgba(0,0,0,0.8)]"
               />
@@ -2010,7 +2099,7 @@ export default function App() {
             </h1>             
             <div className="w-16 h-1 bg-white rounded-full my-6 shadow-[0_0_12px_rgba(255,255,255,0.65)] opacity-80" />             
             <p className="text-[12px] font-sans font-light text-slate-300 leading-relaxed bg-slate-950/65 p-5 rounded-2xl border border-slate-900 shadow-xl text-center tracking-wide">
-              <strong>QUANTUMAUDIOAI</strong> is a high-fidelity offline music player and advanced sound enhancer. Elevate your local MP3, WAV, and FLAC files with an interactive volume booster, 5-band equalizer, and instant bass booster online. Upgrade to unlock custom acoustic room correction powered by the Google Gemini API—tailored perfectly for your headphones, home stereo, car cabin, or surround sound layout.
+              <strong>QUANTUMPLAYERAI</strong> is a high-fidelity offline music player and advanced sound enhancer. Elevate your local MP3, WAV, and FLAC files with an interactive volume booster, 5-band equalizer, and instant bass booster online. Upgrade to unlock custom acoustic room correction powered by the Google Gemini API—tailored perfectly for your headphones, home stereo, car cabin, or surround sound layout.
             </p>             
             <div className="flex flex-wrap items-center justify-center gap-1.5 mt-4 max-w-md px-2">
               {[
@@ -2033,7 +2122,7 @@ export default function App() {
               }}               
               className="mt-8 px-6 py-3 rounded-xl font-sans text-xs font-semibold tracking-widest uppercase cursor-pointer select-none bg-gradient-to-r from-slate-200/20 via-white/10 to-slate-400/25 border-2 border-slate-450 text-white shadow-[0_0_20px_rgba(255,255,255,0.15)] hover:from-white hover:via-slate-100 hover:to-slate-300 hover:text-stone-950 hover:border-white hover:shadow-[0_0_30px_rgba(255,255,255,0.45)] active:scale-95 duration-100 transition-all flex items-center gap-2"             
             >               
-              Listen Now             
+              {currentUser ? "Enter App" : "Log In"}             
             </button>           
           </div>           
           <footer className="w-full text-center mt-auto pt-6 border-t border-slate-900/60 flex flex-col sm:flex-row items-center justify-center gap-3 text-[10px] font-sans text-slate-400 uppercase tracking-widest pb-2">             
@@ -2061,12 +2150,12 @@ export default function App() {
                 <h1 className="text-sm font-semibold font-sans tracking-widest text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.5)] uppercase">                   
                   Privacy Policy                 
                 </h1>                 
-                <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://quantumaudio.ai/privacy-policy</p>               
+                <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://quantumplayer.ai/privacy-policy</p>               
               </div>             
             </div>             
             <div className="text-xs font-sans text-slate-300/90 leading-relaxed bg-slate-950/75 border border-slate-900 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 overflow-y-auto max-h-[350px] font-light">               
               <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">1. SECURE LOCAL AUDIO DATA HANDSHAKES</p>               
-              <p>QUANTUMAUDIOAI respects your personal audio content. All loaded MP3, WAV or track collections are handled entirely client-side using the local browser Web Audio API environment or cached securely using high-speed IndexedDB and LocalStorage wrappers.</p>               
+              <p>QUANTUMPLAYERAI respects your personal audio content. All loaded MP3, WAV or track collections are handled entirely client-side using the local browser Web Audio API environment or cached securely using high-speed IndexedDB and LocalStorage wrappers.</p>               
               <p>We do not transfer, harvest, or index your original music audio byte data to any unauthorized external databases.</p>               
               <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">2. ANONYMOUS HANDSHAKE TRACKING</p>               
               <p>When synced to Cloud Storage catalog, persistent metadata pointers (such as track filename, length, upload timestamps) are saved in a sandboxed, anonymous Firestore directory matching your temporary profile credential key.</p>               
@@ -2082,7 +2171,7 @@ export default function App() {
             </button>           
           </div>           
           <footer className="w-full text-center mt-auto pt-6 text-[9px] font-sans text-slate-500 uppercase tracking-widest">             
-            Placeholder Host Domain: https://quantumaudio.ai           
+            Placeholder Host Domain: https://quantumplayer.ai           
           </footer>         
         </div>       
       )}       
@@ -2097,16 +2186,16 @@ export default function App() {
                 <h1 className="text-sm font-semibold font-sans tracking-widest text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.5)] uppercase">                   
                   User Agreements                 
                 </h1>                 
-                <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://quantumaudio.ai/user-agreement</p>               
+                <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://quantumplayer.ai/user-agreement</p>               
               </div>             
             </div>             
             <div className="text-xs font-sans text-slate-300/90 leading-relaxed bg-[#020512]/90 border border-slate-800/80 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 overflow-y-auto max-h-[350px] font-light">               
               <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">1. INTENT OF APP USE</p>               
-              <p>By booting the QUANTUMAUDIOAI digital sound processing (DSP) environment, you acquire a non-transferable runtime access license to optimize local and synchronized audio files inside your container.</p>               
+              <p>By booting the QUANTUMPLAYERAI digital sound processing (DSP) environment, you acquire a non-transferable runtime access license to optimize local and synchronized audio files inside your container.</p>               
               <p className="font-semibold text-red-400 text-xs border-b border-slate-850 pb-1">2. SUBWOOFER CLIPPING & COMP BASS WARNING</p>               
-              <p className="text-red-350">QUANTUMAUDIOAI CONTAINS HIGH-GAIN ANALOG-EMULATED BASS BOOST GAIN CONTROLS & AN ATOMIC MAX BASS SHOCKWAVE SWITCH capable of severe SPL output swings. BY AGREEMENT, USER TAKES FULL RESPONSIBILITY FOR SOUND INTENSITY AND SPEAKER RIG HARDWARE DAMAGE FROM OVER-EXCURSION OR CLIPPING.</p>               
+              <p className="text-red-350">QUANTUMPLAYERAI CONTAINS HIGH-GAIN ANALOG-EMULATED BASS BOOST GAIN CONTROLS & AN ATOMIC MAX BASS SHOCKWAVE SWITCH capable of severe SPL output swings. BY AGREEMENT, USER TAKES FULL RESPONSIBILITY FOR SOUND INTENSITY AND SPEAKER RIG HARDWARE DAMAGE FROM OVER-EXCURSION OR CLIPPING.</p>               
               <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">3. CLOUD DEPLOYMENTS & DOMAIN HANDSHAKES</p>               
-              <p>All domain handshakes, local port mappings, and external proxies configured on custom server points are operated under strict local sandbox policies. QUANTUMAUDIOAI delivers services "as-is" without secondary liabilities.</p>             
+              <p>All domain handshakes, local port mappings, and external proxies configured on custom server points are operated under strict local sandbox policies. QUANTUMPLAYERAI delivers services "as-is" without secondary liabilities.</p>             
             </div>             
             <button               
               onClick={() => setCurrentView("landing")}               
@@ -2116,11 +2205,11 @@ export default function App() {
             </button>           
           </div>           
           <footer className="w-full text-center mt-auto pt-6 text-[9px] font-sans text-slate-500 uppercase tracking-widest">             
-            Placeholder Host Domain: https://quantumaudio.ai           
+            Placeholder Host Domain: https://quantumplayer.ai           
           </footer>         
         </div>       
       )}       
-          {(currentView === "player" || currentView === "mymusic" || currentView === "upgrade" || currentView === "ai_enhancement") && (         
+          {(currentView === "player" || currentView === "mymusic" || currentView === "upgrade" || currentView === "ai_enhancement" || currentView === "video") && (         
         <>           
           <main id="main-workbench" className="flex-1 w-full mx-auto px-4 py-6 flex flex-col gap-6 items-stretch max-w-xl">                          
             {currentView === "player" && (
@@ -2223,6 +2312,17 @@ export default function App() {
                 onBackToPlayer={() => {
                   setCurrentView("player");
                 }}
+              />
+            )}
+
+            {currentView === "video" && (
+              <VideoView
+                subscriptionTier={subscriptionTier}
+                headunitTime={headunitTime}
+                onBackToPlayer={() => {
+                  setCurrentView("player");
+                }}
+                currentUser={currentUser}
               />
             )}
           </main>         

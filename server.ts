@@ -104,7 +104,7 @@ app.post("/api/optimize", async (req, res) => {
     const finalEquipment = (easyMode && carYearMakeModel) ? carYearMakeModel : (userEquipment || "Standard Drivers");
 
     const prompt = `
-You are the elite AI Master Sound Engineer for the luxury audio application "QUANTUMAUDIOAI". Your job is to calculate mathematically perfect parametric audio settings to transform a standard audio track into a breathtaking, high-fidelity experience tailored precisely to the user's setup.
+You are the elite AI Master Sound Engineer for the luxury audio application "QUANTUMPLAYERAI". Your job is to calculate mathematically perfect parametric audio settings to transform a standard audio track into a breathtaking, high-fidelity experience tailored precisely to the user's setup.
 
 We are optimizing this profile:
 - Track: "${songTitle || "Unknown Track"}" (${genre || "All-Around Audio"})

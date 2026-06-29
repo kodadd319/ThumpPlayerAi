@@ -152,7 +152,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ auth, onSuccess, onBack }) =
           <div className="flex flex-col items-center justify-center mb-6">
             <div className="p-3 w-full max-w-[280px] bg-stone-900/60 border border-slate-300/30 rounded-2xl flex items-center justify-center shadow-inner py-5">
               <span className="text-xl font-sans font-semibold tracking-[0.25em] text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.7)] select-none text-center">
-                QUANTUMAUDIOAI
+                QUANTUMPLAYERAI
               </span>
             </div>
             

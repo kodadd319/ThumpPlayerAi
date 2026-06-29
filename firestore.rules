@@ -1,4 +1,4 @@
-// Rules version 2 - Synchronized for QUANTUMAUDIOAI
+// Rules version 2 - Synchronized for QUANTUMPLAYERAI
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -75,6 +75,22 @@ service cloud.firestore {
           && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64));
     }
 
+    // Entity Video Validation Helper
+    function isValidVideo(data) {
+      return data.keys().hasAll(['uid', 'name', 'url'])
+          && data.uid is string
+          && data.uid.size() <= 128
+          && data.name is string
+          && data.name.size() <= 256
+          && data.url is string
+          && data.url.size() <= 2048
+          && (!('duration' in data) || (data.duration is string && data.duration.size() <= 32))
+          && (!('creator' in data) || (data.creator is string && data.creator.size() <= 128))
+          && (!('category' in data) || (data.category is string && data.category.size() <= 128))
+          && (!('thumbnail' in data) || (data.thumbnail is string && data.thumbnail.size() <= 2048))
+          && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64));
+    }
+
     match /users/{userId} {
       allow get: if isOwner(userId);
       allow create: if isOwner(userId) && isValidUser(request.resource.data);
@@ -91,6 +107,17 @@ service cloud.firestore {
                     && resource.data.uid == request.auth.uid 
                     && request.resource.data.uid == request.auth.uid 
                     && isValidTrack(request.resource.data);
+      allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    match /videos/{videoId} {
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid && isValidVideo(request.resource.data);
+      allow update: if isSignedIn() 
+                    && resource.data.uid == request.auth.uid 
+                    && request.resource.data.uid == request.auth.uid 
+                    && isValidVideo(request.resource.data);
       allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
     }
   }

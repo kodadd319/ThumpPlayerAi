@@ -1,5 +1,5 @@
 {
-  "name": "QUANTUMAUDIOAI",
+  "name": "QUANTUMPLAYERAI",
   "description": "Your music optimized for your ride. An immersive offline car audio DSP player featuring real-time Web Audio equalization, interactive bass-booster knobs, real-time cabinet visualizers, and server-side AI-tailored vehicle profiles.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

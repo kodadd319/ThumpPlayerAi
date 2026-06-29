@@ -326,7 +326,7 @@ export async function ingestAudioLibrary(
       const timestamp = Date.now();
       const storagePath = `users/${userId}/tracks/${timestamp}_${file.name}`;
       const storageRef = ref(storage, storagePath);
-      const uploadTask = uploadBytesResumable(storageRef, file);
+      const uploadTask = uploadBytesResumable(storageRef, file, { contentType: "audio/mpeg" });
 
       // Programmatic wrapper for uploadTask promise
       await new Promise<void>((resolvePromise, rejectPromise) => {

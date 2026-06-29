@@ -37,6 +37,22 @@
         "createdAt": { "type": "string" }
       },
       "required": ["uid", "name", "url"]
+    },
+    "Video": {
+      "title": "Video",
+      "description": "Video track reference pointing to persistent media library assets",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "url": { "type": "string" },
+        "duration": { "type": "string" },
+        "creator": { "type": "string" },
+        "category": { "type": "string" },
+        "thumbnail": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "name", "url"]
     }
   },
   "firestore": {
@@ -47,6 +63,10 @@
     "/tracks/{trackId}": {
       "schema": "Track",
       "description": "Uploader tracks directory referenced to query matching uid"
+    },
+    "/videos/{videoId}": {
+      "schema": "Video",
+      "description": "User uploaded or scanned videos directory referenced to query matching uid"
     }
   }
 }
