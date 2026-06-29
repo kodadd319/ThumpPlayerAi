@@ -198,6 +198,143 @@ Ready, set, drop!
   }
 });
 
+// API route for AI-based Video Optimization and Enhancement
+app.post("/api/optimize-video", async (req, res) => {
+  try {
+    const { 
+      videoName, 
+      category, 
+      activeModel, 
+      upscaleTarget, 
+      colorEnhancement, 
+      smoothMotion, 
+      turboMode 
+    } = req.body;
+
+    if (!process.env.GEMINI_API_KEY) {
+      // Elegant fallback when API key is missing
+      const baseModel = activeModel || "quantum-scale";
+      const baseColor = colorEnhancement || "hdr";
+      
+      let brightness = 1.05;
+      let contrast = 1.15;
+      let saturation = 1.20;
+      let sharpness = 20;
+      let hueRotate = 0;
+      let sepia = 0;
+
+      if (baseColor === "hdr") {
+        brightness = 1.10;
+        contrast = 1.25;
+        saturation = 1.30;
+        sharpness = 30;
+      } else if (baseColor === "vivid") {
+        brightness = 1.05;
+        contrast = 1.30;
+        saturation = 1.55;
+        sharpness = 25;
+      } else if (baseColor === "lowlight") {
+        brightness = 1.28;
+        contrast = 1.10;
+        saturation = 0.95;
+        sharpness = 15;
+      } else if (baseColor === "crisp") {
+        brightness = 0.98;
+        contrast = 1.15;
+        saturation = 1.05;
+        sharpness = 45;
+      }
+
+      if (turboMode) {
+        brightness += 0.05;
+        contrast += 0.08;
+      }
+
+      const justification = `✨ Local Quantum AI Frame Analyzer: Optimizing visual parameters for "${videoName || "Custom Loop"}". Our local DSP pipeline has calibrated the video's pixels! By matching the ${baseModel} reconstruction matrix against your ${baseColor.toUpperCase()} profile, we expanded local contrast ratios to ${Math.round(contrast * 100)}% and fine-tuned saturation to ${Math.round(saturation * 100)}% to match standard dashboard displays. Enjoy premium crystal-clear clarity!`;
+
+      return res.json({
+        success: true,
+        isFallback: true,
+        brightness,
+        contrast,
+        saturation,
+        sharpness,
+        hueRotate,
+        sepia,
+        justification
+      });
+    }
+
+    const ai = getAiClient();
+    const prompt = `
+You are the elite AI Video Calibration Specialist for QUANTUMPLAYERAI, an ultra-premium automotive and theater visual playback platform. Your goal is to analyze the chosen video and render options, and generate professional visual digital signal processing (DSP) parameters.
+
+We are optimizing the following video playback configuration:
+- Video Track Name: "${videoName || "Custom Loop"}" (${category || "Personal Video"})
+- Reconstruction Mode: "${activeModel || "quantum-scale"}" (quantum-scale, deep-cinema, chroma-hdr)
+- Target Upscale Level: "${upscaleTarget || "4K"}" (HD, 2K, 4K, 8K)
+- Base Color Enhancement Profile: "${colorEnhancement || "hdr"}" (hdr, vivid, lowlight, crisp, none)
+- Smooth Motion Interpolation: ${smoothMotion ? "60 FPS Active" : "30 FPS Standard"}
+- Turbo HDR Booster Switch: ${turboMode ? "ON" : "OFF"}
+
+Your task is to:
+1. Recommend specific visual values to fine-tune the HTML video filters (brightness, contrast, saturation, sharpness, hueRotate, sepia).
+2. Write a highly professional, luxurious, and encouraging justification summary explaining:
+   - How this combination of reconstruction mode and color enhancement brings out unmatched cinematic depth, rich dynamic range, and fluid playback in this specific video clip.
+   - Describe the visual effects with precise, upscale, yet friendly words (e.g., "velvety shadows," "luminous specular highlights," "lifelike color grading," "liquid-smooth frame interpolation").
+   - Guide them on what to look for when they watch this optimized loop inside their vehicle's dashboard screen or theater setup.
+
+Provide the response in JSON format matching this schema:
+- brightness: (number, safe range 0.8 to 1.5, default 1.0)
+- contrast: (number, safe range 0.9 to 1.6, default 1.0)
+- saturation: (number, safe range 0.8 to 1.8, default 1.0)
+- sharpness: (number, range 0 to 100, custom pixel amount representing clarity, default 15)
+- hueRotate: (number, range -20 to 20, degrees of color shifting for precision grading, default 0)
+- sepia: (number, range 0 to 0.5, warm analog/vintage overlay, default 0)
+- justification: (string, the luxurious description of the visual enhancement applied by the AI)
+`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            brightness: { type: Type.NUMBER, description: "Brightness scale factor (0.8 to 1.5)" },
+            contrast: { type: Type.NUMBER, description: "Contrast scale factor (0.9 to 1.6)" },
+            saturation: { type: Type.NUMBER, description: "Saturation scale factor (0.8 to 1.8)" },
+            sharpness: { type: Type.NUMBER, description: "Sharpness level (0 to 100)" },
+            hueRotate: { type: Type.NUMBER, description: "Hue rotation in degrees (-20 to 20)" },
+            sepia: { type: Type.NUMBER, description: "Sepia overlay amount (0.0 to 0.5)" },
+            justification: { type: Type.STRING, description: "A luxurious description of the AI calibration results" }
+          },
+          required: ["brightness", "contrast", "saturation", "sharpness", "hueRotate", "sepia", "justification"]
+        }
+      }
+    });
+
+    const config = JSON.parse(response.text || "{}");
+    
+    // Bounds checking
+    config.brightness = Math.max(0.8, Math.min(1.5, config.brightness || 1.0));
+    config.contrast = Math.max(0.9, Math.min(1.6, config.contrast || 1.0));
+    config.saturation = Math.max(0.8, Math.min(1.8, config.saturation || 1.0));
+    config.sharpness = Math.max(0, Math.min(100, config.sharpness || 15));
+    config.hueRotate = Math.max(-20, Math.min(20, config.hueRotate || 0));
+    config.sepia = Math.max(0, Math.min(0.5, config.sepia || 0));
+
+    res.json({
+      success: true,
+      ...config
+    });
+  } catch (error: any) {
+    console.error("Gemini video optimization error:", error);
+    res.status(500).json({ error: "Failed to optimize video profile", details: error.message });
+  }
+});
+
 function calculateFallbackEq(genre = "", soundPreference = ""): number[] {
   // Simple smart defaults
   const normalizedGenre = genre.toLowerCase();

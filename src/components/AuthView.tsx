@@ -6,7 +6,7 @@ import {
   Auth
 } from "firebase/auth";
 import { googleProvider } from "../firebase";
-import { Mail, Lock, AlertTriangle, ShieldCheck, ArrowLeft, Loader2, Crown } from "lucide-react";
+import { Mail, Lock, AlertTriangle, ShieldCheck, ArrowLeft, Loader2 } from "lucide-react";
 import { motion } from "motion/react";
 
 interface AuthViewProps {
@@ -338,39 +338,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ auth, onSuccess, onBack }) =
             </button>
           </div>
 
-          {/* Administrator / Testing Profile Box */}
-          <div className="mt-6 border-t border-slate-800/80 pt-4 text-center">
-            <div className="p-3 bg-amber-500/5 rounded-xl border border-amber-500/20 text-left">
-              <span className="block text-[8.5px] font-sans font-bold uppercase tracking-wider text-amber-400 mb-1 flex items-center gap-1.5">
-                <Crown className="w-3.5 h-3.5 text-amber-500 animate-pulse" /> TESTING / ADMINISTRATOR PROFILE
-              </span>
-              <p className="text-[9px] text-stone-450 font-sans leading-relaxed mb-2 font-light">
-                Sign in with the credentials below to test the app with <strong className="text-amber-400 font-semibold">unlimited Elite Tier status</strong>, bypassing all file upload and premium preset limits.
-              </p>
-              <div className="flex flex-col gap-1 text-[9.5px] font-mono text-stone-300 bg-slate-950/70 p-2 rounded-lg border border-slate-900">
-                <div className="flex justify-between">
-                  <span className="text-stone-500 font-sans uppercase text-[8.5px] tracking-wider">Email:</span>
-                  <span className="select-all text-amber-200">jkoehler319@gmail.com</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-stone-500 font-sans uppercase text-[8.5px] tracking-wider">Password:</span>
-                  <span className="select-all text-amber-200">#Caleb918</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail("jkoehler319@gmail.com");
-                  setPassword("#Caleb918");
-                  setIsSignUp(false);
-                }}
-                className="mt-2.5 w-full text-center py-2 rounded-lg font-sans text-[8.5px] font-semibold tracking-wider text-amber-400 uppercase bg-amber-500/10 border border-amber-500/25 hover:bg-amber-500/20 hover:border-amber-500/40 transition-all cursor-pointer active:scale-98"
-              >
-                Autofill Credentials
-              </button>
-            </div>
-          </div>
-
+          
         </div>
       </motion.div>
 

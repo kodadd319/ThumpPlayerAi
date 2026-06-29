@@ -29,7 +29,9 @@ import {
   FolderSync,
   HardDrive,
   Film,
-  User
+  User,
+  RotateCcw,
+  Loader2
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -113,13 +115,25 @@ interface VideoViewProps {
   headunitTime: string;
   onBackToPlayer: () => void;
   currentUser?: any;
+  firestoreVideos?: VideoTrack[];
+  isUploading?: boolean;
+  uploadProgress?: number | null;
+  uploadError?: string;
+  uploadSuccess?: string;
+  onUploadVideos?: (eOrFiles: any) => Promise<void>;
 }
 
 export const VideoView: React.FC<VideoViewProps> = ({
   subscriptionTier,
   headunitTime,
   onBackToPlayer,
-  currentUser
+  currentUser,
+  firestoreVideos: parentFirestoreVideos,
+  isUploading: parentIsUploading,
+  uploadProgress: parentUploadProgress,
+  uploadError: parentUploadError,
+  uploadSuccess: parentUploadSuccess,
+  onUploadVideos
 }) => {
   // Video Sources State
   const [selectedVideo, setSelectedVideo] = useState<VideoTrack | null>(null);
@@ -222,6 +236,37 @@ export const VideoView: React.FC<VideoViewProps> = ({
     return () => unsubscribe();
   }, [currentUser]);
 
+  // Sync with parent-passed props for Firebase integrations if available
+  useEffect(() => {
+    if (parentFirestoreVideos !== undefined) {
+      setUploadedVideos(parentFirestoreVideos);
+    }
+  }, [parentFirestoreVideos]);
+
+  useEffect(() => {
+    if (parentIsUploading !== undefined) {
+      setIsUploading(parentIsUploading);
+    }
+  }, [parentIsUploading]);
+
+  useEffect(() => {
+    if (parentUploadProgress !== undefined) {
+      setUploadProgress(parentUploadProgress);
+    }
+  }, [parentUploadProgress]);
+
+  useEffect(() => {
+    if (parentUploadSuccess !== undefined) {
+      setUploadSuccess(parentUploadSuccess);
+    }
+  }, [parentUploadSuccess]);
+
+  useEffect(() => {
+    if (parentUploadError !== undefined) {
+      setUploadError(parentUploadError);
+    }
+  }, [parentUploadError]);
+
   // Auto-select first video from uploaded library if none is currently selected
   useEffect(() => {
     if (!selectedVideo && uploadedVideos.length > 0) {
@@ -273,6 +318,59 @@ export const VideoView: React.FC<VideoViewProps> = ({
   const [smoothMotion, setSmoothMotion] = useState(true);
   const [turboMode, setTurboMode] = useState(false);
 
+  // Gemini Video Optimization state
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [aiOptimizedFilters, setAiOptimizedFilters] = useState<{
+    brightness: number;
+    contrast: number;
+    saturation: number;
+    sharpness: number;
+    hueRotate: number;
+    sepia: number;
+    justification: string;
+  } | null>(null);
+  const [videoOptimizeError, setVideoOptimizeError] = useState("");
+
+  const handleOptimizeVideo = async () => {
+    if (!selectedVideo) return;
+    setIsOptimizing(true);
+    setVideoOptimizeError("");
+    try {
+      const response = await fetch("/api/optimize-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videoName: selectedVideo.name,
+          category: selectedVideo.category,
+          activeModel,
+          upscaleTarget,
+          colorEnhancement,
+          smoothMotion,
+          turboMode
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setAiOptimizedFilters({
+          brightness: data.brightness,
+          contrast: data.contrast,
+          saturation: data.saturation,
+          sharpness: data.sharpness,
+          hueRotate: data.hueRotate,
+          sepia: data.sepia,
+          justification: data.justification
+        });
+      } else {
+        setVideoOptimizeError(data.error || "Failed to optimize video.");
+      }
+    } catch (err: any) {
+      console.error("Video optimization call failed:", err);
+      setVideoOptimizeError("Network error. Failed to reach optimization server.");
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
+
   // File Uploader
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState("");
@@ -287,6 +385,8 @@ export const VideoView: React.FC<VideoViewProps> = ({
       setProgress(0);
       setCurrentTime(0);
     }
+    setAiOptimizedFilters(null);
+    setVideoOptimizeError("");
   }, [selectedVideo]);
 
   // Synchronizer Event Hooks
@@ -416,6 +516,11 @@ export const VideoView: React.FC<VideoViewProps> = ({
       files = Array.from(eOrFiles.target.files);
     }
     if (files.length === 0) return;
+
+    if (currentUser && onUploadVideos) {
+      await onUploadVideos(files);
+      return;
+    }
 
     if (!currentUser) {
       // Local offline mode: Save to IndexedDB and set as playing with progress simulation!
@@ -667,6 +772,19 @@ export const VideoView: React.FC<VideoViewProps> = ({
 
   // Compute CSS filter enhancements matching the core dynamic profiles
   const enhancedStyles = useMemo(() => {
+    if (aiOptimizedFilters) {
+      const { brightness, contrast, saturation, sharpness, hueRotate, sepia } = aiOptimizedFilters;
+      let filterStr = `brightness(${brightness}) contrast(${contrast}) saturate(${saturation}) hue-rotate(${hueRotate}deg) sepia(${sepia})`;
+      
+      const sharpnessEffect = sharpness > 0 
+        ? `drop-shadow(0 0 ${sharpness * 0.05}px rgba(255,255,255,${sharpness * 0.003}))`
+        : "";
+        
+      return {
+        filter: `${filterStr} ${sharpnessEffect}`
+      };
+    }
+
     let filterStr = "contrast(1.08) saturate(1.12)";
     
     if (colorEnhancement === "hdr") {
@@ -693,7 +811,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
     return {
       filter: `${filterStr} ${sharpnessEffect}`
     };
-  }, [colorEnhancement, upscaleTarget, turboMode]);
+  }, [colorEnhancement, upscaleTarget, turboMode, aiOptimizedFilters]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -816,7 +934,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
               {selectedVideo ? (
                 <video
                   ref={videoRawRef}
-                  src={resolvedVideoUrl}
+                  src={resolvedVideoUrl || undefined}
                   loop
                   muted={isMuted}
                   onTimeUpdate={handleTimeUpdate}
@@ -1236,6 +1354,131 @@ export const VideoView: React.FC<VideoViewProps> = ({
                 />
               </button>
             </div>
+
+            {/* Gemini AI Optimization section */}
+            <div className="flex flex-col gap-2 pt-1 border-t border-stone-900/40">
+              <button
+                type="button"
+                disabled={isOptimizing || !selectedVideo}
+                onClick={handleOptimizeVideo}
+                className={`w-full py-3 px-4 rounded-xl font-sans text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                  isOptimizing
+                    ? "bg-stone-850 border border-stone-800 text-stone-500 cursor-not-allowed"
+                    : !selectedVideo
+                    ? "bg-stone-950/45 border border-stone-900 text-stone-600 cursor-not-allowed"
+                    : aiOptimizedFilters
+                    ? "bg-slate-900 hover:bg-slate-850 border border-slate-700 text-white shadow-[0_0_15px_rgba(100,116,139,0.25)]"
+                    : "bg-white hover:bg-stone-150 text-stone-950 hover:shadow-lg active:scale-98"
+                }`}
+              >
+                {isOptimizing ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Analyzing Video Signals...
+                  </>
+                ) : aiOptimizedFilters ? (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
+                    Re-Optimize Video with Gemini
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Optimize Video with Gemini AI
+                  </>
+                )}
+              </button>
+
+              {videoOptimizeError && (
+                <div className="text-[10px] text-red-400 font-sans p-2.5 rounded-lg bg-red-500/5 border border-red-500/15 text-center">
+                  ⚠️ {videoOptimizeError}
+                </div>
+              )}
+
+              {aiOptimizedFilters && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-4 rounded-2xl bg-gradient-to-b from-stone-900/60 to-stone-950 border border-stone-850 flex flex-col gap-3.5 text-left"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-sans font-extrabold uppercase tracking-widest text-slate-355 flex items-center gap-1.5">
+                      <Sparkles className="w-3 h-3 text-slate-400 animate-pulse" />
+                      AI Visual Calibration Active
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setAiOptimizedFilters(null)}
+                      title="Reset to default presets"
+                      className="text-stone-500 hover:text-white transition-colors cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  <p className="text-[9.5px] text-stone-400 font-sans leading-relaxed">
+                    {aiOptimizedFilters.justification}
+                  </p>
+
+                  <div className="grid grid-cols-3 gap-2 border-t border-stone-900/60 pt-3">
+                    <div className="flex flex-col gap-0.5 bg-stone-950/80 p-2 rounded-lg border border-stone-900">
+                      <span className="text-[7.5px] font-sans font-bold text-stone-500 uppercase tracking-wider">
+                        Brightness
+                      </span>
+                      <span className="text-[10px] font-mono font-bold text-white">
+                        {Math.round(aiOptimizedFilters.brightness * 100)}%
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col gap-0.5 bg-stone-950/80 p-2 rounded-lg border border-stone-900">
+                      <span className="text-[7.5px] font-sans font-bold text-stone-500 uppercase tracking-wider">
+                        Contrast
+                      </span>
+                      <span className="text-[10px] font-mono font-bold text-white">
+                        {Math.round(aiOptimizedFilters.contrast * 100)}%
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col gap-0.5 bg-stone-950/80 p-2 rounded-lg border border-stone-900">
+                      <span className="text-[7.5px] font-sans font-bold text-stone-500 uppercase tracking-wider">
+                        Saturation
+                      </span>
+                      <span className="text-[10px] font-mono font-bold text-white">
+                        {Math.round(aiOptimizedFilters.saturation * 100)}%
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col gap-0.5 bg-stone-950/80 p-2 rounded-lg border border-stone-900">
+                      <span className="text-[7.5px] font-sans font-bold text-stone-500 uppercase tracking-wider">
+                        Sharpness
+                      </span>
+                      <span className="text-[10px] font-mono font-bold text-white">
+                        +{aiOptimizedFilters.sharpness}%
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col gap-0.5 bg-stone-950/80 p-2 rounded-lg border border-stone-900">
+                      <span className="text-[7.5px] font-sans font-bold text-stone-500 uppercase tracking-wider">
+                        Hue Shift
+                      </span>
+                      <span className="text-[10px] font-mono font-bold text-white">
+                        {aiOptimizedFilters.hueRotate > 0 ? "+" : ""}
+                        {aiOptimizedFilters.hueRotate}°
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col gap-0.5 bg-stone-950/80 p-2 rounded-lg border border-stone-900">
+                      <span className="text-[7.5px] font-sans font-bold text-stone-500 uppercase tracking-wider">
+                        Warmth
+                      </span>
+                      <span className="text-[10px] font-mono font-bold text-white">
+                        {Math.round(aiOptimizedFilters.sepia * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </div>
           </div>
 
           {/* DYNAMIC VIDEO HUB: FULL VIDEO CLOUD LOCKER */}
@@ -1475,7 +1718,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
                     {/* Thumbnail bezel */}
                     <div className="relative aspect-video rounded-xl overflow-hidden mb-2 bg-stone-950">
                       <img 
-                        src={vid.thumbnail} 
+                        src={vid.thumbnail || undefined} 
                         alt="" 
                         referrerPolicy="no-referrer"
                         className="w-full h-full object-cover transition-all duration-300 group-hover:scale-105" 

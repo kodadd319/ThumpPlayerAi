@@ -156,7 +156,7 @@ export function DoubleDinPlayer({
                 className="w-full h-full relative"
               >
                 <img
-                  src={currentTrack.albumArtUrl || currentTrack.imageUrl}
+                  src={currentTrack.albumArtUrl || currentTrack.imageUrl || undefined}
                   alt={currentTrack.name || "Album Art"}
                   referrerPolicy="no-referrer"
                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"

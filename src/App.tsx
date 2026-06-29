@@ -256,6 +256,7 @@ export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [authLoading, setAuthLoading] = useState<boolean>(true);   
   const [firestoreTracks, setFirestoreTracks] = useState<Track[]>([]);   
+  const [firestoreVideos, setFirestoreVideos] = useState<any[]>([]);   
   const [isUploading, setIsUploading] = useState<boolean>(false);   
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);   
   const [uploadError, setUploadError] = useState<string>("");   
@@ -406,14 +407,38 @@ export default function App() {
         }, (err) => {           
           handleFirestoreError(err, OperationType.LIST, "tracks");         
         });         
+
+        const videosQuery = query(collection(db, "videos"), where("uid", "==", user.uid));
+        const unsubscribeVideos = onSnapshot(videosQuery, (querySnapshot) => {
+          const vids: any[] = [];
+          querySnapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            vids.push({
+              id: docSnap.id,
+              name: data.name || "Cloud Video",
+              url: data.url,
+              duration: data.duration || "0:15",
+              creator: data.creator || "Personal Upload",
+              category: data.category || "Personal Video",
+              thumbnail: data.thumbnail || "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&auto=format&fit=crop&q=80",
+              createdAt: data.createdAt || new Date().toISOString()
+            });
+          });
+          setFirestoreVideos(vids);
+        }, (err) => {
+          handleFirestoreError(err, OperationType.LIST, "videos");
+        });
+
         return () => {           
           unsubscribeSettings();           
           unsubscribeTracks();         
+          unsubscribeVideos();
         };       
       } else {         
         setCurrentUser(null);         
         setIsLoggedIn(false);
         setFirestoreTracks([]);         
+        setFirestoreVideos([]);         
         setAuthLoading(false);       
         lastSavedSettingsRef.current = null;
         setLoadedTrackId(null);
@@ -885,116 +910,178 @@ export default function App() {
 
   const handleCloudFileUpload = handleAudioFileUpload;   
   
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {     
-    if (!e.target.files || !currentUser) {
-      setUploadError("Please check authentication session or select valid audio files.");
-      return;
-    }     
-    const files = Array.from(e.target.files) as File[];          
-    
-    // Check Free Tier track upload restrictions safely
-    const currentUploadsCount = (playlist || []).filter(t => t && t.id && !t.id.startsWith("sample-")).length;
-    if ((subscriptionTier || "free") !== "paid" && (currentUploadsCount + files.length) > 10) {
-      setGlobalPremiumPrompt(`Free Tier is limited to a maximum of 10 track uploads. You currently have ${currentUploadsCount} uploads. Please upgrade to enjoy unlimited high-fidelity track uploads!`);
-      setCurrentView("upgrade");
-      e.target.value = ""; 
+  const handleFileUpload = async (eOrFiles: React.ChangeEvent<HTMLInputElement> | File[]) => {     
+    if (!currentUser) {
+      setUploadError("Please check authentication session.");
       return;
     }
- 
+    let files: File[] = [];
+    if (Array.isArray(eOrFiles)) {
+      files = eOrFiles;
+    } else {
+      if (!eOrFiles.target.files) {
+        setUploadError("Please select valid files.");
+        return;
+      }
+      files = Array.from(eOrFiles.target.files);
+    }
+    if (files.length === 0) return;          
+    
     setIsUploading(true);
     setUploadProgress(0);
     setUploadError("");
     setUploadSuccess("");
 
     try {
-      let successCount = 0;
+      let successAudioCount = 0;
+      let successVideoCount = 0;
       let firstUploadedTrackId: string | null = null;
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        console.log(`Uploading file ${i + 1}/${files.length}: ${file.name}`);
-        
-        // Scan Audio Metadata on the Client Layer
-        const metadata = await scanMetadata(file);
+        const isVideo = file.type.startsWith("video/");
 
-        // Formulate Unique Cloud Path inside Storage Bucket
-        const timestamp = Date.now();
-        const storagePath = `tracks/${currentUser.uid}/${timestamp}_${file.name}`;
-        const storageRef = ref(storage, storagePath);
+        if (isVideo) {
+          // Check Video Free Tier Limit
+          const currentCount = firestoreVideos.length;
+          if (subscriptionTier !== "paid" && (currentCount + successVideoCount + 1) > 5) {
+            console.warn("Skipping additional video: Free tier limit of 5 exceeded.");
+            continue;
+          }
 
-        // Fire the Resumable Streaming Connection Upload Link with correct audio/mpeg content-type metadata
-        const uploadTask = uploadBytesResumable(storageRef, file, { contentType: "audio/mpeg" });
+          console.log(`Uploading video file ${i + 1}/${files.length}: ${file.name}`);
+          const timestamp = Date.now();
+          const storagePath = `videos/${currentUser.uid}/${timestamp}_${file.name}`;
+          const storageRef = ref(storage, storagePath);
+          const uploadTask = uploadBytesResumable(storageRef, file, { contentType: file.type });
 
-        await new Promise<void>((resolveUpload, rejectUpload) => {
-          uploadTask.on(
-            "state_changed",
-            (snapshot) => {
-              // Calculate current chunk completion progress percentage
-              const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-              // Set progress relative to overall files
-              const totalProgress = Math.round(((i / files.length) * 100) + (progress / files.length));
-              setUploadProgress(totalProgress);
-              console.log(`Uploading file ${i + 1}/${files.length} to Firebase: ${Math.round(progress)}% complete`);
-            },
-            (error) => {
-              console.error("Firebase Storage Upload Pipeline Aborted:", error);
-              rejectUpload(error);
-            },
-            async () => {
-              try {
-                // Fetch Secure Live CDN URL from Storage Bucket
-                const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+          await new Promise<void>((resolveUpload, rejectUpload) => {
+            uploadTask.on(
+              "state_changed",
+              (snapshot) => {
+                const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                const totalProgress = Math.round(((i / files.length) * 100) + (progress / files.length));
+                setUploadProgress(totalProgress);
+              },
+              (error) => {
+                console.error("Firebase Storage Video Upload Pipeline Aborted:", error);
+                rejectUpload(error);
+              },
+              async () => {
+                try {
+                  const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+                  const videoDocData = {
+                    uid: currentUser.uid,
+                    name: file.name.replace(/\.[^/.]+$/, ""),
+                    url: downloadUrl,
+                    duration: "0:15",
+                    creator: "Personal Upload",
+                    category: "Personal Video",
+                    thumbnail: "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=500&auto=format&fit=crop&q=80",
+                    createdAt: new Date().toISOString()
+                  };
 
-                // Determine genre based on filename
-                let genre = "Bass Accent";
-                const fileLower = file.name.toLowerCase();
-                if (fileLower.includes("rap") || fileLower.includes("hip") || fileLower.includes("beat")) {
-                  genre = "Hip Hop / Rap";
-                } else if (fileLower.includes("rock") || fileLower.includes("metal") || fileLower.includes("guitar")) {
-                  genre = "Rock / Metal";
-                } else if (fileLower.includes("electro") || fileLower.includes("edm") || fileLower.includes("house") || fileLower.includes("dance")) {
-                  genre = "EDM / Electronic";
-                } else if (fileLower.includes("pop") || fileLower.includes("rnb") || fileLower.includes("vocal")) {
-                  genre = "Pop Vocal";
+                  await addDoc(collection(db, "videos"), videoDocData);
+                  successVideoCount++;
+                  resolveUpload();
+                } catch (dbErr: any) {
+                  console.error("Failed to catalog video layout document inside Firestore:", dbErr);
+                  rejectUpload(dbErr);
                 }
-
-                // Save File Pointers to Firestore Document Database
-                const trackDocData = {
-                  uid: currentUser.uid,
-                  name: metadata.title || file.name.replace(/\.[^/.]+$/, ""),
-                  artist: metadata.artist || "Anonymous Streamer",
-                  album: metadata.album || "Cloud Catalog Single",
-                  genre: genre,
-                  duration: 180, // Default fallback metadata parameter
-                  url: downloadUrl,
-                  imageUrl: metadata.imageUrl || "https://images.unsplash.com/photo-1545454675-3531b543be5d?w=500&auto=format&fit=crop&q=80",
-                  albumArtUrl: metadata.albumArtUrl || null,
-                  createdAt: new Date().toISOString()
-                };
-
-                const docRef = await addDoc(collection(db, "tracks"), trackDocData);
-                if (!firstUploadedTrackId) {
-                  firstUploadedTrackId = docRef.id;
-                }
-                successCount++;
-                resolveUpload();
-              } catch (dbErr: any) {
-                console.error("Failed to catalog track layout document inside Firestore:", dbErr);
-                rejectUpload(dbErr);
               }
-            }
-          );
-        });
+            );
+          });
+        } else {
+          // Check Audio Free Tier Limit
+          const currentUploadsCount = (playlist || []).filter(t => t && t.id && !t.id.startsWith("sample-")).length;
+          if ((subscriptionTier || "free") !== "paid" && (currentUploadsCount + successAudioCount + 1) > 10) {
+            console.warn("Skipping additional audio: Free tier limit of 10 exceeded.");
+            continue;
+          }
+
+          console.log(`Uploading audio file ${i + 1}/${files.length}: ${file.name}`);
+          const metadata = await scanMetadata(file);
+          const timestamp = Date.now();
+          const storagePath = `tracks/${currentUser.uid}/${timestamp}_${file.name}`;
+          const storageRef = ref(storage, storagePath);
+          const uploadTask = uploadBytesResumable(storageRef, file, { contentType: "audio/mpeg" });
+
+          await new Promise<void>((resolveUpload, rejectUpload) => {
+            uploadTask.on(
+              "state_changed",
+              (snapshot) => {
+                const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                const totalProgress = Math.round(((i / files.length) * 100) + (progress / files.length));
+                setUploadProgress(totalProgress);
+              },
+              (error) => {
+                console.error("Firebase Storage Audio Upload Pipeline Aborted:", error);
+                rejectUpload(error);
+              },
+              async () => {
+                try {
+                  const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+                  let genre = "Bass Accent";
+                  const fileLower = file.name.toLowerCase();
+                  if (fileLower.includes("rap") || fileLower.includes("hip") || fileLower.includes("beat")) {
+                    genre = "Hip Hop / Rap";
+                  } else if (fileLower.includes("rock") || fileLower.includes("metal") || fileLower.includes("guitar")) {
+                    genre = "Rock / Metal";
+                  } else if (fileLower.includes("electro") || fileLower.includes("edm") || fileLower.includes("house") || fileLower.includes("dance")) {
+                    genre = "EDM / Electronic";
+                  } else if (fileLower.includes("pop") || fileLower.includes("rnb") || fileLower.includes("vocal")) {
+                    genre = "Pop Vocal";
+                  }
+
+                  const trackDocData = {
+                    uid: currentUser.uid,
+                    name: metadata.title || file.name.replace(/\.[^/.]+$/, ""),
+                    artist: metadata.artist || "Anonymous Streamer",
+                    album: metadata.album || "Cloud Catalog Single",
+                    genre: genre,
+                    duration: 180,
+                    url: downloadUrl,
+                    imageUrl: metadata.imageUrl || "https://images.unsplash.com/photo-1545454675-3531b543be5d?w=500&auto=format&fit=crop&q=80",
+                    albumArtUrl: metadata.albumArtUrl || null,
+                    createdAt: new Date().toISOString()
+                  };
+
+                  const docRef = await addDoc(collection(db, "tracks"), trackDocData);
+                  if (!firstUploadedTrackId) {
+                    firstUploadedTrackId = docRef.id;
+                  }
+                  successAudioCount++;
+                  resolveUpload();
+                } catch (dbErr: any) {
+                  console.error("Failed to catalog track document inside Firestore:", dbErr);
+                  rejectUpload(dbErr);
+                }
+              }
+            );
+          });
+        }
       }
 
-      setUploadSuccess(`Successfully uploaded ${successCount} track(s) to your cloud library!`);
+      if (successAudioCount > 0 && successVideoCount > 0) {
+        setUploadSuccess(`Uploaded ${successAudioCount} track(s) and ${successVideoCount} video(s)!`);
+      } else if (successAudioCount > 0) {
+        setUploadSuccess(`Successfully uploaded ${successAudioCount} track(s) to your cloud library!`);
+      } else if (successVideoCount > 0) {
+        setUploadSuccess(`Successfully synchronized ${successVideoCount} video(s) to your cloud video locker!`);
+      }
+
       setIsUploading(false);
       setUploadProgress(null);
       setIsPlaying(false);
       stopSyntheticOsc();
-      setCurrentView("mymusic");
-      if (firstUploadedTrackId) {
-        setLoadedTrackId(firstUploadedTrackId);
+
+      if (successVideoCount > 0 && successAudioCount === 0) {
+        setCurrentView("video");
+      } else {
+        setCurrentView("mymusic");
+        if (firstUploadedTrackId) {
+          setLoadedTrackId(firstUploadedTrackId);
+        }
       }
 
       // Auto wipe notification notice after 4 seconds
@@ -2094,27 +2181,12 @@ export default function App() {
                 className="w-full h-auto aspect-square rounded-3xl object-cover transition-transform duration-500 group-hover:scale-105 shadow-[0_15px_40px_rgba(0,0,0,0.8)]"
               />
             </div>             
-            <h1 className="text-base md:text-lg font-semibold font-sans tracking-widest text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-400 uppercase leading-snug drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] px-2 text-center">               
-              Professional Music Player & Ai Audio Enhancement and Optimization             
+            <h1 className="text-base md:text-lg font-semibold font-sans tracking-wide text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-400 uppercase leading-snug drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] px-2 text-center">               
+              Ai Powered Video and Music Player             
             </h1>             
-            <div className="w-16 h-1 bg-white rounded-full my-6 shadow-[0_0_12px_rgba(255,255,255,0.65)] opacity-80" />             
-            <p className="text-[12px] font-sans font-light text-slate-300 leading-relaxed bg-slate-950/65 p-5 rounded-2xl border border-slate-900 shadow-xl text-center tracking-wide">
-              <strong>QUANTUMPLAYERAI</strong> is a high-fidelity offline music player and advanced sound enhancer. Elevate your local MP3, WAV, and FLAC files with an interactive volume booster, 5-band equalizer, and instant bass booster online. Upgrade to unlock custom acoustic room correction powered by the Google Gemini API—tailored perfectly for your headphones, home stereo, car cabin, or surround sound layout.
+            <p className="mt-6 text-[12px] font-sans font-light text-slate-300 leading-relaxed bg-slate-950/65 p-6 rounded-2xl border border-slate-900 shadow-xl text-center tracking-wide max-w-md">
+              Experience your music and videos like never before. Powered by advanced Gemini AI, QuantumPlayerAI instantly remasters your uploads, delivering ultra-crisp video upscaling and studio-grade audio optimization in real time. Take total control of your soundstage with a precision 5-band equalizer and tailored audio profiles optimized specifically for car audio, headphones, home audio, and immersive surround sound environments. Upload your files and let Gemini power your playback today.
             </p>             
-            <div className="flex flex-wrap items-center justify-center gap-1.5 mt-4 max-w-md px-2">
-              {[
-                "Online MP3 Player",
-                "Low-Latency Audio Enhancer",
-                "Mobile Volume Booster",
-                "Local WAV/FLAC Playback",
-                "Real-Time Web DSP Array",
-                "Headphone Soundstage Expander"
-              ].map((badge, i) => (
-                <span key={i} className="text-[8.5px] font-sans font-semibold text-slate-400 bg-white/[0.03] hover:bg-white/[0.06] px-2.5 py-1 rounded-full border border-white/10 tracking-wider transition-colors duration-100 select-none">
-                  {badge}
-                </span>
-              ))}
-            </div>
             <button               
               onClick={() => {                 
                 if (currentUser) setCurrentView("player");                 
@@ -2323,6 +2395,12 @@ export default function App() {
                   setCurrentView("player");
                 }}
                 currentUser={currentUser}
+                firestoreVideos={firestoreVideos}
+                isUploading={isUploading}
+                uploadProgress={uploadProgress}
+                uploadError={uploadError}
+                uploadSuccess={uploadSuccess}
+                onUploadVideos={handleFileUpload}
               />
             )}
           </main>         
