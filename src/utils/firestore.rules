@@ -1,4 +1,3 @@
-// Rules version 2 - Synchronized for QUANTUMAUDIOAI
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -33,9 +32,8 @@ service cloud.firestore {
           && (!('repeatMode' in data) || (data.repeatMode is string && data.repeatMode.size() <= 16))
           && (!('shuffleMode' in data) || (data.shuffleMode is bool))
           && (!('subscriptionTier' in data) || (data.subscriptionTier is string && data.subscriptionTier.size() <= 16))
-          && (!('currentTrackId' in data) || (data.currentTrackId == null || (data.currentTrackId is string && data.currentTrackId.size() <= 128)))
+          && (!('currentTrackId' in data) || (data.currentTrackId is string && data.currentTrackId.size() <= 128))
           && (!('selectedPresetName' in data) || (data.selectedPresetName is string && data.selectedPresetName.size() <= 128))
-          && (!('customEqBands' in data) || (data.customEqBands == null || (data.customEqBands is list && data.customEqBands.size() <= 10)))
           && (!('isMaxBass' in data) || (data.isMaxBass is bool))
           && (!('vehicleInfo' in data) || (
               data.vehicleInfo is map
@@ -68,9 +66,6 @@ service cloud.firestore {
           && (!('artist' in data) || (data.artist is string && data.artist.size() <= 256))
           && (!('album' in data) || (data.album is string && data.album.size() <= 256))
           && (!('genre' in data) || (data.genre is string && data.genre.size() <= 128))
-          && (!('duration' in data) || (data.duration is number))
-          && (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 2048))
-          && (!('albumArtUrl' in data) || (data.albumArtUrl == null || (data.albumArtUrl is string && data.albumArtUrl.size() <= 2048)))
           && (!('storagePath' in data) || (data.storagePath is string && data.storagePath.size() <= 512))
           && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64));
     }

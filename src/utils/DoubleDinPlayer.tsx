@@ -185,7 +185,7 @@ export function DoubleDinPlayer({
                   🎚️
                 </div>
                 <p className="text-xs tracking-widest text-neutral-500 uppercase">
-                  ELITEPLAYERAI Engine Active
+                  QUANTUMAUDIOAI Engine Active
                 </p>
               </motion.div>
             )}

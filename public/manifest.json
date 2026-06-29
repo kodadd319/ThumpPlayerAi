@@ -1,6 +1,6 @@
 {
-  "name": "ELITEPLAYERAI",
-  "short_name": "ELITEPLAYERAI",
+  "name": "QUANTUMAUDIOAI",
+  "short_name": "QUANTUMAUDIOAI",
   "description": "Your music optimized for your ride. Interactive car audio player featuring real-time EQ, bass-booster knobs, and virtual cabin visualizers.",
   "start_url": "/",
   "display": "standalone",

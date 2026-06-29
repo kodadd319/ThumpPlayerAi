@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useMemo } from "react"; 
-import logoImg from "/assets/logo.png";
 import {   
   Music,   
   Upload,   
@@ -1767,7 +1766,8 @@ export default function App() {
             >
               {/* Logo at the top - scaled up */}
               <div className="flex flex-col items-center justify-center py-5 border-b-2 border-[#1f3050]/65 mb-4 px-4 bg-black/35 rounded-t-2xl gap-2.5">
-                <span className="text-xl font-sans font-semibold tracking-[0.25em] text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.65)] select-none text-center">ELITEPLAYERAI</span>
+                <img src="/logo.png" alt="" referrerPolicy="no-referrer" className="w-16 h-16 rounded-xl object-cover shadow-[0_0_15px_rgba(255,255,255,0.2)] mb-1" />
+                <span className="text-lg font-sans font-semibold tracking-[0.2em] text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.65)] select-none text-center">QUANTUMAUDIOAI</span>
                 {currentUser?.email === "jkoehler319@gmail.com" && (
                   <div className="flex flex-col items-center gap-1 bg-amber-500/10 border border-amber-500/30 p-2.5 rounded-2xl w-full text-center shadow-[0_0_15px_rgba(245,158,11,0.08)]">
                     <span className="text-[9px] font-sans font-bold uppercase tracking-widest text-amber-400">ADMINISTRATOR PROFILE</span>
@@ -1952,14 +1952,16 @@ export default function App() {
         </div>       
       )}       <audio ref={audioRef} className="hidden" />       
 
-      <div className="text-center mt-4 mb-2">
-        <span className="text-lg font-sans font-semibold tracking-[0.25em] text-white select-none block drop-shadow-[0_0_12px_rgba(255,255,255,0.4)]">ELITEPLAYERAI</span>
+      <div className="flex items-center justify-center gap-2 mt-4 mb-2">
+        <img src="/logo.png" alt="" referrerPolicy="no-referrer" className="w-5 h-5 rounded object-cover shadow-[0_0_6px_rgba(255,255,255,0.2)]" />
+        <span className="text-base font-sans font-semibold tracking-[0.25em] text-white select-none block drop-shadow-[0_0_12px_rgba(255,255,255,0.4)]">QUANTUMAUDIOAI</span>
       </div>
       {authLoading ? (
         <div id="auth-loading-screen" className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col justify-center items-center min-h-screen relative z-30">
           <div className="text-center p-8 bg-stone-950/95 border-2 border-white/40 rounded-[2rem] shadow-[0_0_50px_rgba(255,255,255,0.18)] max-w-sm w-full mx-auto select-none backdrop-blur-md">
-            <div className="flex justify-center mb-6 animate-pulse">
-              <span className="text-lg font-sans font-semibold tracking-[0.25em] text-white select-none">ELITEPLAYERAI</span>
+            <div className="flex flex-col items-center justify-center gap-3 mb-6 animate-pulse">
+              <img src="/logo.png" alt="" referrerPolicy="no-referrer" className="w-12 h-12 rounded-xl object-cover shadow-[0_0_10px_rgba(255,255,255,0.3)] animate-pulse" />
+              <span className="text-base font-sans font-semibold tracking-[0.25em] text-white select-none">QUANTUMAUDIOAI</span>
             </div>
             
             <div className="flex items-center justify-center gap-3 mt-4 mb-2">
@@ -1995,15 +1997,20 @@ export default function App() {
             </button>           
           </div>           
           <div className="my-auto flex flex-col items-center justify-center text-center w-full max-w-md py-6">                          
-            <div className="relative p-4 rounded-3xl bg-gradient-to-br from-[#020512]/80 to-[#101935]/50 border-2 border-slate-300/35 shadow-[0_25px_60px_rgba(0,0,0,0.95)] flex items-center justify-center w-full max-w-[380px] mx-auto high-gloss-reflection mb-8">               
-              <span className="text-2xl font-sans font-semibold tracking-[0.25em] text-white block text-center drop-shadow-[0_2px_20px_rgba(255,255,255,0.55)] py-4 select-none">ELITEPLAYERAI</span>
+            <div className="relative w-full max-w-[320px] mx-auto mb-8 overflow-hidden group rounded-3xl">               
+              <img 
+                src="/logo.png" 
+                alt="QUANTUMAUDIOAI Logo" 
+                referrerPolicy="no-referrer"
+                className="w-full h-auto aspect-square rounded-3xl object-cover transition-transform duration-500 group-hover:scale-105 shadow-[0_15px_40px_rgba(0,0,0,0.8)]"
+              />
             </div>             
             <h1 className="text-base md:text-lg font-semibold font-sans tracking-widest text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-400 uppercase leading-snug drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] px-2 text-center">               
               Professional Music Player & Ai Audio Enhancement and Optimization             
             </h1>             
             <div className="w-16 h-1 bg-white rounded-full my-6 shadow-[0_0_12px_rgba(255,255,255,0.65)] opacity-80" />             
             <p className="text-[12px] font-sans font-light text-slate-300 leading-relaxed bg-slate-950/65 p-5 rounded-2xl border border-slate-900 shadow-xl text-center tracking-wide">
-              <strong>ELITEPLAYERAI</strong> is a high-fidelity offline music player and advanced sound enhancer. Elevate your local MP3, WAV, and FLAC files with an interactive volume booster, 5-band equalizer, and instant bass booster online. Upgrade to unlock custom acoustic room correction powered by the Google Gemini API—tailored perfectly for your headphones, home stereo, car cabin, or surround sound layout.
+              <strong>QUANTUMAUDIOAI</strong> is a high-fidelity offline music player and advanced sound enhancer. Elevate your local MP3, WAV, and FLAC files with an interactive volume booster, 5-band equalizer, and instant bass booster online. Upgrade to unlock custom acoustic room correction powered by the Google Gemini API—tailored perfectly for your headphones, home stereo, car cabin, or surround sound layout.
             </p>             
             <div className="flex flex-wrap items-center justify-center gap-1.5 mt-4 max-w-md px-2">
               {[
@@ -2054,12 +2061,12 @@ export default function App() {
                 <h1 className="text-sm font-semibold font-sans tracking-widest text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.5)] uppercase">                   
                   Privacy Policy                 
                 </h1>                 
-                <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://eliteplayer.ai/privacy-policy</p>               
+                <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://quantumaudio.ai/privacy-policy</p>               
               </div>             
             </div>             
             <div className="text-xs font-sans text-slate-300/90 leading-relaxed bg-slate-950/75 border border-slate-900 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 overflow-y-auto max-h-[350px] font-light">               
               <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">1. SECURE LOCAL AUDIO DATA HANDSHAKES</p>               
-              <p>ELITEPLAYERAI respects your personal audio content. All loaded MP3, WAV or track collections are handled entirely client-side using the local browser Web Audio API environment or cached securely using high-speed IndexedDB and LocalStorage wrappers.</p>               
+              <p>QUANTUMAUDIOAI respects your personal audio content. All loaded MP3, WAV or track collections are handled entirely client-side using the local browser Web Audio API environment or cached securely using high-speed IndexedDB and LocalStorage wrappers.</p>               
               <p>We do not transfer, harvest, or index your original music audio byte data to any unauthorized external databases.</p>               
               <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">2. ANONYMOUS HANDSHAKE TRACKING</p>               
               <p>When synced to Cloud Storage catalog, persistent metadata pointers (such as track filename, length, upload timestamps) are saved in a sandboxed, anonymous Firestore directory matching your temporary profile credential key.</p>               
@@ -2075,7 +2082,7 @@ export default function App() {
             </button>           
           </div>           
           <footer className="w-full text-center mt-auto pt-6 text-[9px] font-sans text-slate-500 uppercase tracking-widest">             
-            Placeholder Host Domain: https://eliteplayer.ai           
+            Placeholder Host Domain: https://quantumaudio.ai           
           </footer>         
         </div>       
       )}       
@@ -2090,16 +2097,16 @@ export default function App() {
                 <h1 className="text-sm font-semibold font-sans tracking-widest text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.5)] uppercase">                   
                   User Agreements                 
                 </h1>                 
-                <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://eliteplayer.ai/user-agreement</p>               
+                <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://quantumaudio.ai/user-agreement</p>               
               </div>             
             </div>             
             <div className="text-xs font-sans text-slate-300/90 leading-relaxed bg-[#020512]/90 border border-slate-800/80 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 overflow-y-auto max-h-[350px] font-light">               
               <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">1. INTENT OF APP USE</p>               
-              <p>By booting the ELITEPLAYERAI digital sound processing (DSP) environment, you acquire a non-transferable runtime access license to optimize local and synchronized audio files inside your container.</p>               
+              <p>By booting the QUANTUMAUDIOAI digital sound processing (DSP) environment, you acquire a non-transferable runtime access license to optimize local and synchronized audio files inside your container.</p>               
               <p className="font-semibold text-red-400 text-xs border-b border-slate-850 pb-1">2. SUBWOOFER CLIPPING & COMP BASS WARNING</p>               
-              <p className="text-red-350">ELITEPLAYERAI CONTAINS HIGH-GAIN ANALOG-EMULATED BASS BOOST GAIN CONTROLS & AN ATOMIC MAX BASS SHOCKWAVE SWITCH capable of severe SPL output swings. BY AGREEMENT, USER TAKES FULL RESPONSIBILITY FOR SOUND INTENSITY AND SPEAKER RIG HARDWARE DAMAGE FROM OVER-EXCURSION OR CLIPPING.</p>               
+              <p className="text-red-350">QUANTUMAUDIOAI CONTAINS HIGH-GAIN ANALOG-EMULATED BASS BOOST GAIN CONTROLS & AN ATOMIC MAX BASS SHOCKWAVE SWITCH capable of severe SPL output swings. BY AGREEMENT, USER TAKES FULL RESPONSIBILITY FOR SOUND INTENSITY AND SPEAKER RIG HARDWARE DAMAGE FROM OVER-EXCURSION OR CLIPPING.</p>               
               <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">3. CLOUD DEPLOYMENTS & DOMAIN HANDSHAKES</p>               
-              <p>All domain handshakes, local port mappings, and external proxies configured on custom server points are operated under strict local sandbox policies. ELITEPLAYERAI delivers services "as-is" without secondary liabilities.</p>             
+              <p>All domain handshakes, local port mappings, and external proxies configured on custom server points are operated under strict local sandbox policies. QUANTUMAUDIOAI delivers services "as-is" without secondary liabilities.</p>             
             </div>             
             <button               
               onClick={() => setCurrentView("landing")}               
@@ -2109,21 +2116,12 @@ export default function App() {
             </button>           
           </div>           
           <footer className="w-full text-center mt-auto pt-6 text-[9px] font-sans text-slate-500 uppercase tracking-widest">             
-            Placeholder Host Domain: https://eliteplayer.ai           
+            Placeholder Host Domain: https://quantumaudio.ai           
           </footer>         
         </div>       
       )}       
           {(currentView === "player" || currentView === "mymusic" || currentView === "upgrade" || currentView === "ai_enhancement") && (         
         <>           
-          <header id="app-header" className="sticky top-0 z-[1050] bg-[#020512]/95 backdrop-blur-md border-b-2 border-slate-600/85 px-4 py-2 flex items-center justify-between high-gloss-reflection">             
-            <div className="flex items-center gap-2">               
-              {/* Left-side Spacer matching the global floating hamburger button width */}
-              <div className="w-12 h-8" />
-            </div>             
-            <div className="flex items-center justify-center flex-1 pr-6 w-full">               
-              <span className="text-base sm:text-lg font-sans font-semibold tracking-[0.2em] text-white select-none block drop-shadow-[0_0_12px_rgba(255,255,255,0.55)]">ELITEPLAYERAI</span>
-            </div>           
-          </header>
           <main id="main-workbench" className="flex-1 w-full mx-auto px-4 py-6 flex flex-col gap-6 items-stretch max-w-xl">                          
             {currentView === "player" && (
               <>
