@@ -314,7 +314,9 @@ export default function App() {
               setShuffleMode(data.shuffleMode);
             }
             if (data.subscriptionTier) {
-              setSubscriptionTier(data.subscriptionTier as "free" | "paid");
+              setSubscriptionTier((user.email === "jkoehler319@gmail.com" ? "paid" : data.subscriptionTier) as "free" | "paid");
+            } else if (user.email === "jkoehler319@gmail.com") {
+              setSubscriptionTier("paid");
             }
             if (data.currentTrackId !== undefined) {
               setLoadedTrackId(data.currentTrackId);
@@ -355,7 +357,7 @@ export default function App() {
               isMuted: false,
               repeatMode: "all" as const,
               shuffleMode: false,
-              subscriptionTier: "free" as const,
+              subscriptionTier: (user.email === "jkoehler319@gmail.com" ? "paid" : "free") as "free" | "paid",
               currentTrackId: null,
               selectedPresetName: "Hip hop",
               customEqBands: null,
@@ -376,6 +378,7 @@ export default function App() {
               }
             };
             lastSavedSettingsRef.current = initialData;
+            setSubscriptionTier(user.email === "jkoehler319@gmail.com" ? "paid" : "free");
             setDoc(userDocRef, initialData, { merge: true })
               .catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));           
           }         
@@ -584,9 +587,10 @@ export default function App() {
   const [showAtomicExplosion, setShowAtomicExplosion] = useState<boolean>(false);   
 
   const handleSubscriptionTierChange = (tier: "free" | "paid") => {
-    setSubscriptionTier(tier);
-    localStorage.setItem("thumplayer_sub_tier", tier);
-    if (tier === "paid") {
+    const forcedTier = currentUser?.email === "jkoehler319@gmail.com" ? "paid" : tier;
+    setSubscriptionTier(forcedTier);
+    localStorage.setItem("thumplayer_sub_tier", forcedTier);
+    if (forcedTier === "paid") {
       setGlobalPremiumPrompt(""); 
       console.log("Premium plan activated - Unlocked custom presets, unlimited track uploads, and AI high-fidelity filter algorithms!");
     } else {
@@ -771,114 +775,100 @@ export default function App() {
     }   
   }, [volume, isMuted]);   
 
-  const handleCloudFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {     
-    if (!currentUser) {       
-      setUploadError("Access alert: Establishing secure anonymous account handshake first...");       
-      return;     
-    }     
-    if (!e.target.files || e.target.files.length === 0) return;     
-    
-    // Check Free Tier track upload restrictions safely
-    const currentUploadsCount = (playlist || []).filter(t => t && t.id && !t.id.startsWith("sample-")).length;
-    if ((subscriptionTier || "free") !== "paid" && (currentUploadsCount + 1) > 3) {
-      setGlobalPremiumPrompt(`Free Tier is limited to a maximum of 3 track uploads. You currently have ${currentUploadsCount} uploads. Please upgrade to enjoy unlimited high-fidelity track uploads!`);
-      setCurrentView("upgrade");
-      e.target.value = ""; 
+  const handleAudioFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !currentUser) {
+      setUploadError("Please check authentication session or select a valid audio file.");
       return;
     }
 
-    const file = e.target.files[0];     
-    const isAudio = file.type.startsWith("audio/") || file.name.endsWith(".mp3") || file.name.endsWith(".wav");     
-    if (!isAudio) {       
-      setUploadError("Format rejected: Please select a valid audio file (.mp3, .wav).");       
-      return;     
-    }     
-    setUploadError("");     
-    setUploadSuccess("");     
-    setIsUploading(true);     
-    setUploadProgress(0);     
-    try {       
-      const meta = await scanMetadata(file);       
-      let genre = "Bass Head Trap";       
-      const fileLower = file.name.toLowerCase();       
-      if (fileLower.includes("rap") || fileLower.includes("hip") || fileLower.includes("beat")) {         
-        genre = "Hip Hop / Rap";       
-      } else if (fileLower.includes("rock") || fileLower.includes("metal") || fileLower.includes("guitar")) {         
-        genre = "Rock / Metal";       
-      } else if (fileLower.includes("electro") || fileLower.includes("edm") || fileLower.includes("house") || fileLower.includes("dance")) {         
-        genre = "EDM / Electronic";       
-      } else if (fileLower.includes("pop") || fileLower.includes("rnb") || fileLower.includes("vocal")) {         
-        genre = "Pop Vocal";       
-      }       
-      const fileId = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, "_")}`;       
-      const storageRef = ref(storage, `users/${currentUser.uid}/tracks/${fileId}`);       
-      const uploadTask = uploadBytesResumable(storageRef, file);       
-      uploadTask.on(         
-        "state_changed",         
-        (snapshot) => {           
-          const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);           
-          setUploadProgress(progress);         
-        },         
-        (error) => {           
-          console.error("Firebase Storage upload exception occurred:", error);           
-          setUploadError(`Storage upload failed: ${error.message}`);           
-          setIsUploading(false);           
-          setUploadProgress(null);         
-        },         
-        () => {           
-          getDownloadURL(uploadTask.snapshot.ref)
-            .then(async (downloadUrl) => {
-              try {             
-                const newCloudTrack = {               
-                  uid: currentUser.uid,               
-                  name: (meta.title || file.name.replace(/\.[^/.]+$/, "")).slice(0, 255),               
-                  artist: (meta.artist || "Cloud Artist").slice(0, 255),               
-                  album: (meta.album || "Cloud Single").slice(0, 255),               
-                  genre: (genre || "Bass Accent").slice(0, 120),               
-                  url: downloadUrl,               
-                  storagePath: `users/${currentUser.uid}/tracks/${fileId}`.slice(0, 500),               
-                  createdAt: new Date().toISOString()             
-                };             
-                const docRef = await addDoc(collection(db, "tracks"), newCloudTrack);             
-                setUploadSuccess(`Successfully synchronized "${file.name}" to Cloud Storage database!`);             
-                setIsUploading(false);             
-                setUploadProgress(null);           
-                setCurrentView("mymusic");
-                
-                const trackToLoad: Track = {
-                  id: docRef.id,
-                  ...newCloudTrack,
-                  duration: 0,
-                  imageUrl: meta.imageUrl || "",
-                  albumArtUrl: meta.albumArtUrl || meta.imageUrl || null
-                };
-                setLoadedTrackId(docRef.id);
-                const audio = audioRef.current;
-                if (audio) {
-                  loadTrackSource(audio, trackToLoad);
-                }
-              } catch (catalogErr: any) {             
-                handleFirestoreError(catalogErr, OperationType.CREATE, "tracks");             
-                setUploadError(`Failed to save catalog details: ${catalogErr.message || catalogErr}`);             
-                setIsUploading(false);             
-                setUploadProgress(null);           
-              }         
-            })
-            .catch((urlErr) => {
-              console.error("Failed to retrieve download URL:", urlErr);
-              setUploadError(`Failed to retrieve download URL: ${urlErr.message || urlErr}`);
-              setIsUploading(false);
-              setUploadProgress(null);
-            });
-        }       
-      );     
-    } catch (err: any) {       
-      console.error("General file processing exception:", err);       
-      setUploadError(`Processing error: ${err.message || err}`);       
-      setIsUploading(false);       
-      setUploadProgress(null);     
-    }   
-  };   
+    // Check Free Tier track upload restrictions safely
+    const currentUploadsCount = (playlist || []).filter(t => t && t.id && !t.id.startsWith("sample-")).length;
+    if ((subscriptionTier || "free") !== "paid" && (currentUploadsCount + 1) > 10) {
+      setGlobalPremiumPrompt(`Free Tier is limited to a maximum of 10 track uploads. You currently have ${currentUploadsCount} uploads. Please upgrade to enjoy unlimited high-fidelity track uploads!`);
+      setCurrentView("upgrade");
+      event.target.value = ""; 
+      return;
+    }
+
+    // 1. Initial State Fire-up
+    setIsUploading(true);
+    setUploadProgress(0);
+    setUploadError("");
+    setUploadSuccess("");
+
+    try {
+      // 2. Scan Audio Metadata on the Client Layer
+      const metadata = await scanMetadata(file);
+
+      // 3. Formulate Unique Cloud Path inside Storage Bucket
+      const timestamp = Date.now();
+      const storagePath = `tracks/${currentUser.uid}/${timestamp}_${file.name}`;
+      const storageRef = ref(storage, storagePath);
+
+      // 4. Fire the Resumable Streaming Connection Upload Link
+      const uploadTask = uploadBytesResumable(storageRef, file);
+
+      uploadTask.on(
+        "state_changed",
+        (snapshot) => {
+          // Calculate current chunk completion progress percentage
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress(Math.round(progress));
+          console.log(`Uploading track payload to Firebase: ${Math.round(progress)}% complete`);
+        },
+        (error) => {
+          // Catch and process upload failures cleanly
+          console.error("Firebase Storage Upload Pipeline Aborted:", error);
+          setUploadError(`Storage Transfer Failed: ${error.message}`);
+          setIsUploading(false);
+          setUploadProgress(null);
+        },
+        async () => {
+          try {
+            // 5. Fetch Secure Live CDN URL from Storage Bucket
+            const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+
+            // 6. Save File Pointers to Firestore Document Database
+            const trackDocData = {
+              uid: currentUser.uid,
+              name: metadata.title || file.name.replace(/\.[^/.]+$/, ""),
+              artist: metadata.artist || "Anonymous Streamer",
+              album: metadata.album || "Cloud Catalog Single",
+              genre: "Bass Head Trap",
+              duration: 180, // Default fallback metadata parameter
+              url: downloadUrl,
+              imageUrl: metadata.imageUrl || "https://images.unsplash.com/photo-1545454675-3531b543be5d?w=500&auto=format&fit=crop&q=80",
+              albumArtUrl: metadata.albumArtUrl || null,
+              createdAt: new Date().toISOString()
+            };
+
+            await addDoc(collection(db, "tracks"), trackDocData);
+
+            // 7. Success Finalization Flags reset
+            setUploadSuccess(`"${trackDocData.name}" synced to audio cloud locker successfully!`);
+            setIsUploading(false);
+            setUploadProgress(null);
+            
+            // Auto wipe notification notice after 4 seconds
+            setTimeout(() => setUploadSuccess(""), 4000);
+          } catch (dbErr: any) {
+            console.error("Failed to catalog track layout document inside Firestore:", dbErr);
+            setUploadError("Audio saved to storage, but database index linking failed.");
+            setIsUploading(false);
+            setUploadProgress(null);
+          }
+        }
+      );
+    } catch (err: any) {
+      console.error("Critical tracking crash during file compilation process:", err);
+      setUploadError("Failed to initialize storage pipe infrastructure.");
+      setIsUploading(false);
+      setUploadProgress(null);
+    }
+  };
+
+  const handleCloudFileUpload = handleAudioFileUpload;   
  
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {     
     if (!e.target.files) return;     
@@ -886,8 +876,8 @@ export default function App() {
     
     // Check Free Tier track upload restrictions safely
     const currentUploadsCount = (playlist || []).filter(t => t && t.id && !t.id.startsWith("sample-")).length;
-    if ((subscriptionTier || "free") !== "paid" && (currentUploadsCount + files.length) > 3) {
-      setGlobalPremiumPrompt(`Free Tier is limited to a maximum of 3 track uploads. You currently have ${currentUploadsCount} uploads. Please upgrade to enjoy unlimited high-fidelity track uploads!`);
+    if ((subscriptionTier || "free") !== "paid" && (currentUploadsCount + files.length) > 10) {
+      setGlobalPremiumPrompt(`Free Tier is limited to a maximum of 10 track uploads. You currently have ${currentUploadsCount} uploads. Please upgrade to enjoy unlimited high-fidelity track uploads!`);
       setCurrentView("upgrade");
       e.target.value = ""; 
       return;
@@ -920,7 +910,7 @@ export default function App() {
     });          
     const newTracks = await Promise.all(scanPromises);          
     if (newTracks.length > 0) {       
-      const filteredPlaylist = playlist.filter(t => !t.id.startsWith("sample-") || playlist.length > 3);       
+      const filteredPlaylist = playlist.filter(t => !t.id.startsWith("sample-") || playlist.length > 10);       
       const updatedList = [...filteredPlaylist, ...newTracks];       
       setPlaylist(updatedList);              
       const firstNewIdx = updatedList.indexOf(newTracks[0]);       
@@ -990,7 +980,7 @@ export default function App() {
       isMuted,
       repeatMode,
       shuffleMode,
-      subscriptionTier,
+      subscriptionTier: currentUser?.email === "jkoehler319@gmail.com" ? "paid" : subscriptionTier,
       currentTrackId: activeTrackId,
       selectedPresetName,
       isMaxBass,
@@ -1776,8 +1766,15 @@ export default function App() {
               className="absolute left-0 mt-4 w-80 rounded-3xl bg-gradient-to-br from-[#0c1328] via-[#040814] to-[#010307] border-2 border-[#1f3050] shadow-[0_25px_60px_rgba(0,0,0,0.95)] overflow-hidden flex flex-col gap-2.5 p-4 z-[1102]"
             >
               {/* Logo at the top - scaled up */}
-              <div className="flex justify-center py-6 border-b-2 border-[#1f3050]/65 mb-4 px-4 bg-black/35 rounded-t-2xl">
+              <div className="flex flex-col items-center justify-center py-5 border-b-2 border-[#1f3050]/65 mb-4 px-4 bg-black/35 rounded-t-2xl gap-2.5">
                 <span className="text-xl font-sans font-semibold tracking-[0.25em] text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.65)] select-none text-center">ELITEPLAYERAI</span>
+                {currentUser?.email === "jkoehler319@gmail.com" && (
+                  <div className="flex flex-col items-center gap-1 bg-amber-500/10 border border-amber-500/30 p-2.5 rounded-2xl w-full text-center shadow-[0_0_15px_rgba(245,158,11,0.08)]">
+                    <span className="text-[9px] font-sans font-bold uppercase tracking-widest text-amber-400">ADMINISTRATOR PROFILE</span>
+                    <span className="text-[8.5px] font-sans text-stone-300 font-light lowercase">{currentUser.email}</span>
+                    <span className="text-[8px] font-sans font-bold uppercase tracking-wider text-emerald-400 mt-0.5">UNLIMITED ELITE TIER ACTIVE</span>
+                  </div>
+                )}
               </div>
               {/* Options - larger fonts, increased spacing */}
               <button
@@ -1845,7 +1842,7 @@ export default function App() {
                 }}
                 className={`w-full text-left font-sans font-medium uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-3.5 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
                   currentView === "ai_enhancement"
-                    ? "bg-white/10 border-2 border-slate-350 text-white shadow-[0_0_12px_rgba(255,255,255,0.2)] font-semibold"
+                    ? "bg-white/10 border-2 border-slate-350 text-white shadow-[0_0_12px_rgba(255,255,255,0.25)] font-semibold"
                     : "text-slate-200 hover:bg-slate-900/65 hover:text-white hover:pl-5"
                 }`}
               >
@@ -2127,7 +2124,7 @@ export default function App() {
               <span className="text-base sm:text-lg font-sans font-semibold tracking-[0.2em] text-white select-none block drop-shadow-[0_0_12px_rgba(255,255,255,0.55)]">ELITEPLAYERAI</span>
             </div>           
           </header>
-          <main id="main-workbench" className="flex-1 w-full max-w-xl mx-auto px-4 py-6 flex flex-col gap-6 items-stretch">                          
+          <main id="main-workbench" className="flex-1 w-full mx-auto px-4 py-6 flex flex-col gap-6 items-stretch max-w-xl">                          
             {currentView === "player" && (
               <>
                 <DoubleDinPlayer               

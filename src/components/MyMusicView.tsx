@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import { 
   Music, 
   Upload, 
@@ -15,10 +15,17 @@ import {
   Check,
   FolderSync,
   Database,
-  Grid
+  Grid,
+  HardDrive
 } from "lucide-react";
 import { Track } from "../types";
 import { motion, AnimatePresence } from "motion/react";
+import {
+  isNativePlatform,
+  requestNativeAndroidPermissions,
+  scanNativeStorageForAudio,
+  ingestAudioLibrary
+} from "../utils/audioScannerService";
 
 interface MyMusicViewProps {
   playlist: Track[];
@@ -57,6 +64,111 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
+  // Smart Scanner Service local states
+  const [isScanning, setIsScanning] = useState(false);
+  const [currentScanFile, setCurrentScanFile] = useState<string | null>(null);
+  const [scanProgress, setScanProgress] = useState<number>(0);
+  const [scanResult, setScanResult] = useState<{ tracksCount: number; limitExceeded: boolean } | null>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSmartScan = async () => {
+    if (!currentUser) {
+      setUploadError("Please check authentication session or select a valid audio file.");
+      return;
+    }
+    
+    setIsScanning(true);
+    setCurrentScanFile("Detecting environment...");
+    setScanProgress(0);
+    setScanResult(null);
+    setUploadError("");
+    setUploadSuccess("");
+
+    try {
+      const isNative = isNativePlatform();
+      let filesToIngest: File[] = [];
+
+      if (isNative) {
+        setCurrentScanFile("Requesting Android storage permissions...");
+        const permitted = await requestNativeAndroidPermissions();
+        if (!permitted) {
+          throw new Error("Android storage permissions denied.");
+        }
+        setCurrentScanFile("Scanning media directories...");
+        filesToIngest = await scanNativeStorageForAudio();
+        if (filesToIngest.length === 0) {
+          setCurrentScanFile(null);
+          setIsScanning(false);
+          setUploadError("No music files (.mp3, .wav, .m4a, .flac) found in native storage.");
+          return;
+        }
+        await executeLibraryIngestion(filesToIngest);
+      } else {
+        // PWA/Web fallback: trigger hidden multiple files input
+        setCurrentScanFile("Awaiting manual file selection...");
+        if (scanInputRef.current) {
+          scanInputRef.current.click();
+        }
+      }
+
+    } catch (err: any) {
+      console.error("Smart scan failed:", err);
+      setUploadError(err.message || "An error occurred during smart scanning.");
+      setIsScanning(false);
+      setCurrentScanFile(null);
+    }
+  };
+
+  const executeLibraryIngestion = async (files: File[]) => {
+    try {
+      setIsScanning(true);
+      const res = await ingestAudioLibrary(
+        files,
+        currentUser.uid,
+        currentUser.email,
+        (fileName, progress) => {
+          setCurrentScanFile(fileName);
+          setScanProgress(progress);
+        }
+      );
+
+      setScanResult({
+        tracksCount: res.uploadedCount,
+        limitExceeded: res.limitExceeded
+      });
+
+      if (res.uploadedCount > 0) {
+        setUploadSuccess(`Smart scanner successfully ingested ${res.uploadedCount} tracks into your cloud library!`);
+      } else if (res.limitExceeded) {
+        setUploadError("Ingestion partially capped: You have reached the maximum 10-track limit for the Free Tier. Please upgrade to enjoy unlimited high-fidelity uploads!");
+      } else {
+        setUploadError("No new tracks were ingested.");
+      }
+
+    } catch (err: any) {
+      console.error("Ingestion execution error:", err);
+      setUploadError("File ingestion process encountered a secure service exception.");
+    } finally {
+      setIsScanning(false);
+      setCurrentScanFile(null);
+    }
+  };
+
+  const handleScanInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) {
+      setIsScanning(false);
+      setCurrentScanFile(null);
+      return;
+    }
+    const files = Array.from(e.target.files) as File[];
+    if (files.length === 0) {
+      setIsScanning(false);
+      setCurrentScanFile(null);
+      return;
+    }
+    executeLibraryIngestion(files);
+  };
 
   // 1. Filter out sample/built-in tracks to get user uploaded music
   const uploadedTracks = useMemo(() => {
@@ -176,7 +288,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
       </div>
 
       {/* 2. Upload Zones: spacious, floating, relaxed feel */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
         {/* Upload Local File */}
         <label className="group relative flex items-center gap-5 p-6 rounded-2xl bg-[#0f0a09]/50 hover:bg-[#1a110f]/80 border border-slate-850 hover:border-slate-500 transition-all duration-300 cursor-pointer overflow-hidden">
@@ -232,6 +344,34 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
             </span>
           </div>
         </label>
+
+        {/* Smart Device Scanner - Native/Web Ingestion */}
+        <button 
+          onClick={handleSmartScan}
+          disabled={isScanning}
+          className="group relative flex items-center gap-5 p-6 rounded-2xl bg-amber-500/5 hover:bg-amber-500/10 border border-amber-500/20 hover:border-amber-500/40 transition-all duration-300 cursor-pointer overflow-hidden disabled:opacity-50 text-left w-full"
+        >
+          <div className="absolute inset-0 bg-gradient-to-r from-amber-500/0 via-amber-500/[0.02] to-amber-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+          <input 
+            type="file" 
+            ref={scanInputRef}
+            accept="audio/*" 
+            multiple 
+            onChange={handleScanInputChange} 
+            className="hidden" 
+          />
+          <div className="p-4 rounded-full bg-amber-500/10 text-amber-400 group-hover:scale-110 transition-transform duration-300">
+            <HardDrive className="w-5 h-5 stroke-[1.5]" />
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm font-sans font-semibold text-amber-400 tracking-wide">
+              Smart Device Scanner
+            </span>
+            <span className="text-xs text-slate-400 font-light leading-relaxed">
+              Scan device folders or directories to cleanly ingest files with ID3 metadata extraction.
+            </span>
+          </div>
+        </button>
       </div>
 
       {/* Progress Bars and Status Alerts */}
@@ -252,6 +392,26 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
             </div>
             <div className="h-1 bg-stone-900 rounded-full overflow-hidden">
               <div className="h-full bg-gradient-to-r from-slate-300 to-slate-100 transition-all duration-300" style={{ width: `${uploadProgress || 0}%` }} />
+            </div>
+          </motion.div>
+        )}
+
+        {isScanning && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="p-5 rounded-2xl bg-slate-950/40 border border-amber-500/25 flex flex-col gap-2.5"
+          >
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-amber-400 font-light flex items-center gap-2">
+                <FolderSync className="w-4 h-4 text-amber-400 animate-spin" />
+                {currentScanFile ? `Smart Scanner: ${currentScanFile}` : "Scanning device directories..."}
+              </span>
+              <span className="font-sans text-amber-400 font-semibold">{scanProgress}%</span>
+            </div>
+            <div className="h-1 bg-stone-950 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-amber-500 to-amber-300 transition-all duration-300" style={{ width: `${scanProgress}%` }} />
             </div>
           </motion.div>
         )}
