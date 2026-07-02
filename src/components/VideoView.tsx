@@ -50,6 +50,7 @@ import {
 } from "firebase/storage";
 import { db, storage, auth } from "../firebase";
 import { storeVideoBlob, getVideoBlob, deleteVideoBlob } from "../utils/videoStorage";
+import { VideoTrack } from "../types";
 
 enum OperationType {
   CREATE = 'create',
@@ -95,20 +96,52 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     path
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("firestore-error", { detail: errInfo }));
+  }
+
   throw new Error(JSON.stringify(errInfo));
 }
 
-interface VideoTrack {
-  id: string;
-  name: string;
-  url: string;
-  duration: string;
-  creator: string;
-  category: string;
-  thumbnail: string;
-}
-
-const BUILTIN_VIDEOS: VideoTrack[] = [];
+const BUILTIN_VIDEOS: VideoTrack[] = [
+  {
+    id: "sample-1",
+    name: "Big Buck Bunny",
+    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    duration: "9:56",
+    creator: "Blender Foundation",
+    category: "Cinematic",
+    thumbnail: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&auto=format&fit=crop&q=80",
+  },
+  {
+    id: "sample-2",
+    name: "Elephants Dream",
+    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+    duration: "10:53",
+    creator: "Blender Foundation",
+    category: "Futuristic",
+    thumbnail: "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=500&auto=format&fit=crop&q=80",
+  },
+  {
+    id: "sample-3",
+    name: "For Bigger Blazes",
+    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+    duration: "0:15",
+    creator: "Google Developer",
+    category: "Cinematic",
+    thumbnail: "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?w=500&auto=format&fit=crop&q=80",
+  },
+  {
+    id: "sample-4",
+    name: "For Bigger Escapes",
+    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+    duration: "0:15",
+    creator: "Google Developer",
+    category: "Futuristic",
+    thumbnail: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=500&auto=format&fit=crop&q=80",
+  }
+];
 
 interface VideoViewProps {
   subscriptionTier: "free" | "paid";
@@ -121,6 +154,31 @@ interface VideoViewProps {
   uploadError?: string;
   uploadSuccess?: string;
   onUploadVideos?: (eOrFiles: any) => Promise<void>;
+  
+  // Shared states
+  selectedVideo: VideoTrack | null;
+  setSelectedVideo: (video: VideoTrack | null) => void;
+  activeModel: "quantum-scale" | "deep-cinema" | "chroma-hdr";
+  setActiveModel: (model: "quantum-scale" | "deep-cinema" | "chroma-hdr") => void;
+  upscaleTarget: "HD" | "2K" | "4K" | "8K";
+  setUpscaleTarget: (target: "HD" | "2K" | "4K" | "8K") => void;
+  colorEnhancement: "hdr" | "vivid" | "lowlight" | "crisp" | "none";
+  setColorEnhancement: (color: "hdr" | "vivid" | "lowlight" | "crisp" | "none") => void;
+  smoothMotion: boolean;
+  setSmoothMotion: (active: boolean) => void;
+  turboMode: boolean;
+  setTurboMode: (active: boolean) => void;
+  aiOptimizedFilters: {
+    brightness: number;
+    contrast: number;
+    saturation: number;
+    sharpness: number;
+    hueRotate: number;
+    sepia: number;
+    justification: string;
+  } | null;
+  setAiOptimizedFilters: (filters: any) => void;
+  onRefreshVideos?: () => Promise<void>;
 }
 
 export const VideoView: React.FC<VideoViewProps> = ({
@@ -133,10 +191,26 @@ export const VideoView: React.FC<VideoViewProps> = ({
   uploadProgress: parentUploadProgress,
   uploadError: parentUploadError,
   uploadSuccess: parentUploadSuccess,
-  onUploadVideos
+  onUploadVideos,
+  onRefreshVideos,
+  
+  // Shared states
+  selectedVideo,
+  setSelectedVideo,
+  activeModel,
+  setActiveModel,
+  upscaleTarget,
+  setUpscaleTarget,
+  colorEnhancement,
+  setColorEnhancement,
+  smoothMotion,
+  setSmoothMotion,
+  turboMode,
+  setTurboMode,
+  aiOptimizedFilters,
+  setAiOptimizedFilters
 }) => {
   // Video Sources State
-  const [selectedVideo, setSelectedVideo] = useState<VideoTrack | null>(null);
   const [resolvedVideoUrl, setResolvedVideoUrl] = useState<string>("");
   const localVideoUrlsRef = useRef<Record<string, string>>({});
 
@@ -267,10 +341,11 @@ export const VideoView: React.FC<VideoViewProps> = ({
     }
   }, [parentUploadError]);
 
-  // Auto-select first video from uploaded library if none is currently selected
+  // Auto-select first video from combined library if none is currently selected
   useEffect(() => {
-    if (!selectedVideo && uploadedVideos.length > 0) {
-      setSelectedVideo(uploadedVideos[0]);
+    const allVids = [...BUILTIN_VIDEOS, ...uploadedVideos];
+    if (!selectedVideo && allVids.length > 0) {
+      setSelectedVideo(allVids[0]);
     }
   }, [uploadedVideos, selectedVideo]);
 
@@ -311,66 +386,6 @@ export const VideoView: React.FC<VideoViewProps> = ({
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "21:9" | "4:3" | "1:1">("16:9");
 
-  // AI Quality Profiles state
-  const [activeModel, setActiveModel] = useState<"quantum-scale" | "deep-cinema" | "chroma-hdr">("quantum-scale");
-  const [upscaleTarget, setUpscaleTarget] = useState<"HD" | "2K" | "4K" | "8K">("4K");
-  const [colorEnhancement, setColorEnhancement] = useState<"hdr" | "vivid" | "lowlight" | "crisp" | "none">("hdr");
-  const [smoothMotion, setSmoothMotion] = useState(true);
-  const [turboMode, setTurboMode] = useState(false);
-
-  // Gemini Video Optimization state
-  const [isOptimizing, setIsOptimizing] = useState(false);
-  const [aiOptimizedFilters, setAiOptimizedFilters] = useState<{
-    brightness: number;
-    contrast: number;
-    saturation: number;
-    sharpness: number;
-    hueRotate: number;
-    sepia: number;
-    justification: string;
-  } | null>(null);
-  const [videoOptimizeError, setVideoOptimizeError] = useState("");
-
-  const handleOptimizeVideo = async () => {
-    if (!selectedVideo) return;
-    setIsOptimizing(true);
-    setVideoOptimizeError("");
-    try {
-      const response = await fetch("/api/optimize-video", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          videoName: selectedVideo.name,
-          category: selectedVideo.category,
-          activeModel,
-          upscaleTarget,
-          colorEnhancement,
-          smoothMotion,
-          turboMode
-        })
-      });
-      const data = await response.json();
-      if (data.success) {
-        setAiOptimizedFilters({
-          brightness: data.brightness,
-          contrast: data.contrast,
-          saturation: data.saturation,
-          sharpness: data.sharpness,
-          hueRotate: data.hueRotate,
-          sepia: data.sepia,
-          justification: data.justification
-        });
-      } else {
-        setVideoOptimizeError(data.error || "Failed to optimize video.");
-      }
-    } catch (err: any) {
-      console.error("Video optimization call failed:", err);
-      setVideoOptimizeError("Network error. Failed to reach optimization server.");
-    } finally {
-      setIsOptimizing(false);
-    }
-  };
-
   // File Uploader
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState("");
@@ -386,7 +401,6 @@ export const VideoView: React.FC<VideoViewProps> = ({
       setCurrentTime(0);
     }
     setAiOptimizedFilters(null);
-    setVideoOptimizeError("");
   }, [selectedVideo]);
 
   // Synchronizer Event Hooks
@@ -517,175 +531,8 @@ export const VideoView: React.FC<VideoViewProps> = ({
     }
     if (files.length === 0) return;
 
-    if (currentUser && onUploadVideos) {
+    if (onUploadVideos) {
       await onUploadVideos(files);
-      return;
-    }
-
-    if (!currentUser) {
-      // Local offline mode: Save to IndexedDB and set as playing with progress simulation!
-      const file = files[0];
-      if (!file.type.startsWith("video/")) {
-        setUploadError("Invalid file type. Please upload a standard video file (MP4, WebM, etc.)");
-        return;
-      }
-      setUploadError("");
-      setIsUploading(true);
-      setUploadProgress(10);
-      
-      const localId = `offline-${Date.now()}`;
-      try {
-        const objUrl = URL.createObjectURL(file);
-        localVideoUrlsRef.current[localId] = objUrl;
-        
-        setUploadProgress(35);
-        await storeVideoBlob(localId, file);
-        setUploadProgress(75);
-        
-        const localTrack: VideoTrack = {
-          id: localId,
-          name: file.name.replace(/\.[^/.]+$/, ""),
-          url: `local-db://${localId}`,
-          duration: "Local File",
-          creator: "Offline Local Video",
-          category: "Personal Video",
-          thumbnail: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&auto=format&fit=crop&q=80"
-        };
-        
-        await new Promise((r) => setTimeout(r, 400));
-        setUploadProgress(100);
-        await new Promise((r) => setTimeout(r, 200));
-        
-        setSelectedVideo(localTrack);
-        setIsPlaying(false);
-        setProgress(0);
-        setCurrentTime(0);
-
-        setUploadSuccess("Saved offline local video to browser storage successfully! Log in to sync to cloud storage.");
-        setTimeout(() => setUploadSuccess(""), 4000);
-      } catch (err) {
-        console.error("Failed to store video locally:", err);
-        setUploadError("Failed to store video in browser database.");
-      } finally {
-        setIsUploading(false);
-        setUploadProgress(null);
-      }
-      return;
-    }
-
-    // Checking upload limit for Free Tier users (max 5)
-    const currentCount = uploadedVideos.length;
-    if (subscriptionTier !== "paid" && (currentCount + files.length) > 5) {
-      setUploadError(`Free Tier limit exceeded. You currently have ${currentCount} video file(s) synced and are trying to add ${files.length} more (Limit is 5). Upgrade to Premium to enjoy unlimited high-fidelity video cloud hosting!`);
-      return;
-    }
-
-    setIsUploading(true);
-    setUploadProgress(0);
-    setUploadError("");
-    setUploadSuccess("");
-
-    try {
-      let firstUploadedTrack: VideoTrack | null = null;
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        if (!file.type.startsWith("video/")) {
-          setUploadError(`File "${file.name}" is not a valid video format.`);
-          continue;
-        }
-
-        const videoId = `vid_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
-        // Cache the local file's object URL in-memory immediately for instant, zero-lag play
-        const objUrl = URL.createObjectURL(file);
-        localVideoUrlsRef.current[videoId] = objUrl;
-
-        // 1. First, store in IndexedDB for instant, zero-lag play and reliable offline execution
-        await storeVideoBlob(videoId, file);
-
-        // 2. Prepare Firestore document
-        // We start with a local URL. If Firebase Storage succeeds, we'll use that instead.
-        let finalUrl = `local-db://${videoId}`;
-
-        // 3. Attempt to upload to Firebase Storage
-        try {
-          const timestamp = Date.now();
-          const storagePath = `videos/${currentUser.uid}/${timestamp}_${file.name}`;
-          const storageRef = ref(storage, storagePath);
-          const uploadTask = uploadBytesResumable(storageRef, file, { contentType: file.type });
-
-          await new Promise<void>((resolve) => {
-            uploadTask.on(
-              "state_changed",
-              (snapshot) => {
-                const progressVal = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                const totalProgress = Math.round(((i / files.length) * 100) + (progressVal / files.length));
-                setUploadProgress(totalProgress);
-              },
-              (err) => {
-                // If storage fails, we still resolve to fallback on local IndexedDB
-                console.warn("Storage upload failed, fallback to local database storage:", err);
-                resolve();
-              },
-              async () => {
-                try {
-                  const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-                  finalUrl = downloadUrl;
-                  resolve();
-                } catch (urlErr) {
-                  console.warn("Download URL retrieval failed:", urlErr);
-                  resolve();
-                }
-              }
-            );
-          });
-        } catch (storageErr) {
-          console.warn("Firebase Storage failed, saving metadata with local DB fallback:", storageErr);
-        }
-
-        // 4. Save to Firestore
-        const docData = {
-          uid: currentUser.uid,
-          name: file.name.replace(/\.[^/.]+$/, ""),
-          url: finalUrl,
-          duration: "0:15",
-          creator: isCloudSync ? "Cloud Sync Video" : "Personal Upload",
-          category: "Personal Video",
-          thumbnail: "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=500&auto=format&fit=crop&q=80",
-          createdAt: new Date().toISOString()
-        };
-
-        let docRef;
-        try {
-          docRef = await addDoc(collection(db, "videos"), docData);
-        } catch (dbErr) {
-          handleFirestoreError(dbErr, OperationType.CREATE, "videos");
-        }
-
-        if (i === 0 && docRef) {
-          firstUploadedTrack = {
-            id: docRef.id,
-            ...docData
-          };
-        }
-      }
-
-      if (firstUploadedTrack) {
-        setSelectedVideo(firstUploadedTrack);
-        setIsPlaying(false);
-        setProgress(0);
-        setCurrentTime(0);
-      }
-
-      setUploadSuccess(`Successfully synchronized ${files.length} video(s) to your cloud video locker!`);
-      setTimeout(() => setUploadSuccess(""), 4500);
-    } catch (err: any) {
-      console.error("Video upload failed:", err);
-      setUploadError(err.message || "An error occurred during video uploads.");
-    } finally {
-      setIsUploading(false);
-      setUploadProgress(null);
     }
   };
 
@@ -698,7 +545,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
 
   const handleBatchDelete = async () => {
     if (selectedVideoIds.length === 0) return;
-    if (confirm(`Are you sure you want to delete ${selectedVideoIds.length} video(s) from your synced cloud storage?`)) {
+    if (confirm(`Are you sure you want to delete ${selectedVideoIds.length} video(s) from your storage?`)) {
       const idsToDelete = [...selectedVideoIds];
       setSelectedVideoIds([]);
       try {
@@ -707,18 +554,20 @@ export const VideoView: React.FC<VideoViewProps> = ({
           if (track && track.url.startsWith("local-db://")) {
             const blobId = track.url.replace("local-db://", "");
             await deleteVideoBlob(blobId);
-          }
-          try {
-            await deleteDoc(doc(db, "videos", cid));
-          } catch (dbErr) {
-            handleFirestoreError(dbErr, OperationType.DELETE, `videos/${cid}`);
+          } else {
+            await deleteVideoBlob(cid);
           }
         }
+        
+        if (onRefreshVideos) {
+          await onRefreshVideos();
+        }
+
         setUploadSuccess("Selected video(s) deleted successfully.");
         setTimeout(() => setUploadSuccess(""), 4000);
       } catch (err: any) {
         console.error("Batch delete failed:", err);
-        setUploadError("Failed to delete some selected videos from cloud storage.");
+        setUploadError("Failed to delete some selected videos from local storage.");
       }
     }
   };
@@ -886,7 +735,6 @@ export const VideoView: React.FC<VideoViewProps> = ({
               <span className={`animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75 ${isPlaying ? "block" : "hidden"}`}></span>
               <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${isPlaying ? "bg-white" : "bg-stone-600"}`}></span>
             </span>
-            ELITE ULTRA-HD VIDEO ACTIVE
           </span>
           
           <button 
@@ -1025,16 +873,6 @@ export const VideoView: React.FC<VideoViewProps> = ({
                   <p className="text-xs sm:text-sm text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.4)] font-sans font-semibold tracking-widest uppercase mt-1.5">
                     {selectedVideo.creator}
                   </p>
-
-                  {/* Category & Mode Tags */}
-                  <div className="flex items-center justify-center gap-2 mt-3">
-                    <span className="text-[8px] font-sans font-semibold tracking-[0.12em] text-white bg-white/10 px-2.5 py-0.5 rounded-full border border-white/25 uppercase">
-                      AI UP-RESOLUTION
-                    </span>
-                    <span className="text-[8px] font-sans font-semibold tracking-[0.12em] text-stone-300 bg-stone-900 px-2.5 py-0.5 rounded-full border border-stone-800 uppercase">
-                      {selectedVideo.category}
-                    </span>
-                  </div>
                 </motion.div>
               ) : (
                 <motion.div
@@ -1205,78 +1043,8 @@ export const VideoView: React.FC<VideoViewProps> = ({
             </button>
           </div>
 
-          {/* 6. PICTURE & AI CUSTOMIZATION PANEL: Sleek dashboard grid with simplified friendly controls */}
+          {/* Video Format Controls: Screen aspect ratio and speed */}
           <div className="mt-2 pt-4 border-t border-stone-900/60 flex flex-col gap-4">
-            <h3 className="font-sans text-[10px] font-bold uppercase tracking-widest text-slate-300 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-stone-400" />
-              AI Picture Adjustment
-            </h3>
-
-            {/* AI Reconstruction Profile */}
-            <div className="flex flex-col gap-1.5">
-              <span className="font-sans text-[8px] font-bold uppercase tracking-widest text-stone-400 text-left">
-                Reconstruction Mode
-              </span>
-              <div className="grid grid-cols-3 gap-1.5">
-                {[
-                  { id: "quantum-scale" as const, name: "Quantum Scale" },
-                  { id: "deep-cinema" as const, name: "Deep Cinema" },
-                  { id: "chroma-hdr" as const, name: "Chroma HDR" }
-                ].map((mode) => (
-                  <button
-                    key={mode.id}
-                    onClick={() => setActiveModel(mode.id)}
-                    className={`py-2 rounded-xl border font-sans text-[9px] font-bold uppercase tracking-tight transition-all cursor-pointer truncate ${
-                      activeModel === mode.id
-                        ? "bg-white/10 border-white/40 text-white font-extrabold shadow"
-                        : "bg-stone-950/40 border-stone-900 text-stone-500 hover:text-stone-300"
-                    }`}
-                  >
-                    {mode.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Two-Column Mini Controls */}
-            <div className="grid grid-cols-2 gap-4">
-              
-              {/* Quality Level (Resolution) */}
-              <div className="flex flex-col gap-1.5 text-left">
-                <span className="font-sans text-[8px] font-bold uppercase tracking-widest text-stone-400">
-                  Quality Level
-                </span>
-                <select
-                  value={upscaleTarget}
-                  onChange={(e) => setUpscaleTarget(e.target.value as any)}
-                  className="w-full bg-stone-950 border border-stone-900 text-stone-300 hover:text-white font-sans text-[10px] font-bold p-2.5 rounded-xl cursor-pointer outline-none transition-all uppercase"
-                >
-                  <option value="HD">Standard HD (1080p)</option>
-                  <option value="2K">Smooth QHD (2K)</option>
-                  <option value="4K">High-Res (4K)</option>
-                  <option value="8K">Ultra-Extreme (8K)</option>
-                </select>
-              </div>
-
-              {/* Color Preset Selector */}
-              <div className="flex flex-col gap-1.5 text-left">
-                <span className="font-sans text-[8px] font-bold uppercase tracking-widest text-stone-400">
-                  Color Enhancement
-                </span>
-                <select
-                  value={colorEnhancement}
-                  onChange={(e) => setColorEnhancement(e.target.value as any)}
-                  className="w-full bg-stone-950 border border-stone-900 text-stone-300 hover:text-white font-sans text-[10px] font-bold p-2.5 rounded-xl cursor-pointer outline-none transition-all uppercase"
-                >
-                  <option value="hdr">HDR Expansion</option>
-                  <option value="vivid">Vivid Glow</option>
-                  <option value="lowlight">Low-Light Enhancer</option>
-                  <option value="crisp">Razor Sharp</option>
-                  <option value="none">Original Source</option>
-                </select>
-              </div>
-
-            </div>
 
             {/* Screen Aspect Ratio & Speed Controls */}
             <div className="grid grid-cols-2 gap-4 pt-1">
@@ -1328,157 +1096,6 @@ export const VideoView: React.FC<VideoViewProps> = ({
 
             </div>
 
-            {/* Smooth Motion FPS switch row */}
-            <div className="flex items-center justify-between p-3 rounded-2xl bg-stone-950/40 border border-stone-900/80">
-              <div className="flex items-center gap-2 text-left">
-                <Layers className="w-4 h-4 text-stone-400" />
-                <div className="flex flex-col">
-                  <span className="font-sans text-[9px] font-bold text-stone-200 uppercase tracking-tight">
-                    Smooth Motion (60 FPS)
-                  </span>
-                  <span className="font-sans text-[8px] text-stone-500 tracking-wide">
-                    Double the standard video frame rate in real-time
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => setSmoothMotion(!smoothMotion)}
-                className={`w-10 h-5.5 rounded-full transition-all duration-150 relative cursor-pointer ${
-                  smoothMotion ? "bg-white/90" : "bg-stone-850"
-                }`}
-              >
-                <div 
-                  className={`w-4 h-4 rounded-full absolute top-0.75 transition-all duration-150 ${
-                    smoothMotion ? "left-5 bg-stone-950" : "left-1 bg-stone-500"
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Gemini AI Optimization section */}
-            <div className="flex flex-col gap-2 pt-1 border-t border-stone-900/40">
-              <button
-                type="button"
-                disabled={isOptimizing || !selectedVideo}
-                onClick={handleOptimizeVideo}
-                className={`w-full py-3 px-4 rounded-xl font-sans text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                  isOptimizing
-                    ? "bg-stone-850 border border-stone-800 text-stone-500 cursor-not-allowed"
-                    : !selectedVideo
-                    ? "bg-stone-950/45 border border-stone-900 text-stone-600 cursor-not-allowed"
-                    : aiOptimizedFilters
-                    ? "bg-slate-900 hover:bg-slate-850 border border-slate-700 text-white shadow-[0_0_15px_rgba(100,116,139,0.25)]"
-                    : "bg-white hover:bg-stone-150 text-stone-950 hover:shadow-lg active:scale-98"
-                }`}
-              >
-                {isOptimizing ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    Analyzing Video Signals...
-                  </>
-                ) : aiOptimizedFilters ? (
-                  <>
-                    <Sparkles className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
-                    Re-Optimize Video with Gemini
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-3.5 h-3.5" />
-                    Optimize Video with Gemini AI
-                  </>
-                )}
-              </button>
-
-              {videoOptimizeError && (
-                <div className="text-[10px] text-red-400 font-sans p-2.5 rounded-lg bg-red-500/5 border border-red-500/15 text-center">
-                  ⚠️ {videoOptimizeError}
-                </div>
-              )}
-
-              {aiOptimizedFilters && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="p-4 rounded-2xl bg-gradient-to-b from-stone-900/60 to-stone-950 border border-stone-850 flex flex-col gap-3.5 text-left"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-sans font-extrabold uppercase tracking-widest text-slate-355 flex items-center gap-1.5">
-                      <Sparkles className="w-3 h-3 text-slate-400 animate-pulse" />
-                      AI Visual Calibration Active
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setAiOptimizedFilters(null)}
-                      title="Reset to default presets"
-                      className="text-stone-500 hover:text-white transition-colors cursor-pointer"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                    </button>
-                  </div>
-
-                  <p className="text-[9.5px] text-stone-400 font-sans leading-relaxed">
-                    {aiOptimizedFilters.justification}
-                  </p>
-
-                  <div className="grid grid-cols-3 gap-2 border-t border-stone-900/60 pt-3">
-                    <div className="flex flex-col gap-0.5 bg-stone-950/80 p-2 rounded-lg border border-stone-900">
-                      <span className="text-[7.5px] font-sans font-bold text-stone-500 uppercase tracking-wider">
-                        Brightness
-                      </span>
-                      <span className="text-[10px] font-mono font-bold text-white">
-                        {Math.round(aiOptimizedFilters.brightness * 100)}%
-                      </span>
-                    </div>
-
-                    <div className="flex flex-col gap-0.5 bg-stone-950/80 p-2 rounded-lg border border-stone-900">
-                      <span className="text-[7.5px] font-sans font-bold text-stone-500 uppercase tracking-wider">
-                        Contrast
-                      </span>
-                      <span className="text-[10px] font-mono font-bold text-white">
-                        {Math.round(aiOptimizedFilters.contrast * 100)}%
-                      </span>
-                    </div>
-
-                    <div className="flex flex-col gap-0.5 bg-stone-950/80 p-2 rounded-lg border border-stone-900">
-                      <span className="text-[7.5px] font-sans font-bold text-stone-500 uppercase tracking-wider">
-                        Saturation
-                      </span>
-                      <span className="text-[10px] font-mono font-bold text-white">
-                        {Math.round(aiOptimizedFilters.saturation * 100)}%
-                      </span>
-                    </div>
-
-                    <div className="flex flex-col gap-0.5 bg-stone-950/80 p-2 rounded-lg border border-stone-900">
-                      <span className="text-[7.5px] font-sans font-bold text-stone-500 uppercase tracking-wider">
-                        Sharpness
-                      </span>
-                      <span className="text-[10px] font-mono font-bold text-white">
-                        +{aiOptimizedFilters.sharpness}%
-                      </span>
-                    </div>
-
-                    <div className="flex flex-col gap-0.5 bg-stone-950/80 p-2 rounded-lg border border-stone-900">
-                      <span className="text-[7.5px] font-sans font-bold text-stone-500 uppercase tracking-wider">
-                        Hue Shift
-                      </span>
-                      <span className="text-[10px] font-mono font-bold text-white">
-                        {aiOptimizedFilters.hueRotate > 0 ? "+" : ""}
-                        {aiOptimizedFilters.hueRotate}°
-                      </span>
-                    </div>
-
-                    <div className="flex flex-col gap-0.5 bg-stone-950/80 p-2 rounded-lg border border-stone-900">
-                      <span className="text-[7.5px] font-sans font-bold text-stone-500 uppercase tracking-wider">
-                        Warmth
-                      </span>
-                      <span className="text-[10px] font-mono font-bold text-white">
-                        {Math.round(aiOptimizedFilters.sepia * 100)}%
-                      </span>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </div>
           </div>
 
           {/* DYNAMIC VIDEO HUB: FULL VIDEO CLOUD LOCKER */}
@@ -1506,44 +1123,21 @@ export const VideoView: React.FC<VideoViewProps> = ({
               </div>
             </div>
 
-            {/* Hub Action Deck (The Ingestion buttons) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {/* Button 1: Add Local Videos */}
+            {/* Hub Action Deck (The Ingestion button) */}
+            <div className="flex flex-col items-center justify-center">
               <button
                 disabled={isUploading}
                 onClick={triggerUploadClick}
-                className="group relative flex flex-col items-center justify-center p-3.5 rounded-2xl bg-gradient-to-b from-stone-900 to-[#120c0b] border border-stone-850 hover:border-white/10 transition-all duration-200 shadow-md cursor-pointer hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:pointer-events-none"
+                className="group relative flex flex-col items-center justify-center p-6 rounded-2xl bg-gradient-to-b from-stone-900 to-[#120c0b] border border-stone-850 hover:border-white/10 transition-all duration-200 shadow-md cursor-pointer hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:pointer-events-none w-full"
               >
-                <div className="w-7 h-7 rounded-xl bg-stone-950 flex items-center justify-center mb-2 border border-stone-900 group-hover:border-white/10 transition-colors">
-                  <Upload className="w-3.5 h-3.5 text-stone-300 group-hover:text-white transition-colors" />
+                <div className="w-8 h-8 rounded-full bg-stone-950 flex items-center justify-center mb-2.5 border border-stone-900 group-hover:border-white/10 transition-colors">
+                  <Upload className="w-4 h-4 text-stone-300 group-hover:text-white transition-colors" />
                 </div>
-                <span className="font-sans text-[9px] font-bold text-stone-200 uppercase tracking-wider group-hover:text-white transition-colors">
-                  Add Local Videos
+                <span className="font-sans text-[10px] font-bold text-stone-200 uppercase tracking-widest group-hover:text-white transition-colors">
+                  Open Video File
                 </span>
                 <span className="font-sans text-[7.5px] text-stone-550 mt-1 uppercase tracking-tight text-center">
-                  Drag or select video files
-                </span>
-              </button>
- 
-              {/* Button 2: Sync Cloud Storage */}
-              <button
-                disabled={isUploading}
-                onClick={() => {
-                  if (fileInputRef.current) {
-                    fileInputRef.current.setAttribute("multiple", "true");
-                    fileInputRef.current.click();
-                  }
-                }}
-                className="group relative flex flex-col items-center justify-center p-3.5 rounded-2xl bg-gradient-to-b from-stone-900 to-[#120c0b] border border-stone-850 hover:border-white/10 transition-all duration-200 shadow-md cursor-pointer hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:pointer-events-none"
-              >
-                <div className="w-7 h-7 rounded-xl bg-stone-950 flex items-center justify-center mb-2 border border-stone-900 group-hover:border-white/10 transition-colors">
-                  <FolderSync className="w-3.5 h-3.5 text-stone-300 group-hover:text-white transition-colors" />
-                </div>
-                <span className="font-sans text-[9px] font-bold text-stone-200 uppercase tracking-wider group-hover:text-white transition-colors">
-                  Sync Cloud Storage
-                </span>
-                <span className="font-sans text-[7.5px] text-stone-550 mt-1 uppercase tracking-tight text-center">
-                  Multi-device backup vault
+                  Directly stream video from your device storage
                 </span>
               </button>
             </div>
@@ -1559,29 +1153,6 @@ export const VideoView: React.FC<VideoViewProps> = ({
 
             {/* In-Progress Alerts & Notifications */}
             <AnimatePresence>
-              {/* Storage Upload Progress */}
-              {isUploading && uploadProgress !== null && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="p-3.5 rounded-2xl bg-stone-950/80 border border-stone-900 flex flex-col gap-2 relative overflow-hidden"
-                >
-                  <div className="flex items-center justify-between text-[8.5px] font-sans font-bold uppercase text-slate-300">
-                    <span className="flex items-center gap-1.5">
-                      <span className="animate-spin inline-block w-2.5 h-2.5 border-2 border-stone-400 border-t-transparent rounded-full" />
-                      Synchronizing Video Files to Locker...
-                    </span>
-                    <span className="font-mono">{uploadProgress}%</span>
-                  </div>
-                  <div className="w-full h-1.5 bg-stone-900 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-slate-300 rounded-full transition-all duration-200"
-                      style={{ width: `${uploadProgress}%` }}
-                    />
-                  </div>
-                </motion.div>
-              )}
 
               {/* Error Alert */}
               {uploadError && (
@@ -1717,12 +1288,21 @@ export const VideoView: React.FC<VideoViewProps> = ({
                   >
                     {/* Thumbnail bezel */}
                     <div className="relative aspect-video rounded-xl overflow-hidden mb-2 bg-stone-950">
-                      <img 
-                        src={vid.thumbnail || undefined} 
-                        alt="" 
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover transition-all duration-300 group-hover:scale-105" 
-                      />
+                      {vid.thumbnail ? (
+                        <img 
+                          src={vid.thumbnail} 
+                          alt="" 
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover transition-all duration-300 group-hover:scale-105" 
+                        />
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center bg-stone-900 gap-1">
+                          <Film className="w-5 h-5 text-stone-600 animate-pulse" />
+                          <span className="text-[7px] font-sans font-bold text-stone-500 uppercase tracking-widest">
+                            RAW STREAM
+                          </span>
+                        </div>
+                      )}
                       
                       {/* Active Player Glow overlay */}
                       {isSelected && (

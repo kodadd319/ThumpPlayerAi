@@ -172,21 +172,31 @@ export function DoubleDinPlayer({
                 </div>
               </motion.div>
             ) : (
-              /* Luxury Default Fallback (Matches your Black/Beige/Mahogany aesthetic) */
+              /* Beautiful generic placeholder icon for local stream files */
               <motion.div
                 key="fallback-art"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ duration: 0.5 }}
-                className="text-center p-6 flex flex-col items-center gap-3"
+                className="w-full h-full bg-stone-950 flex flex-col items-center justify-center gap-4 text-center p-6"
               >
-                <div className="w-16 h-16 rounded-full border border-neutral-700 flex items-center justify-center text-neutral-500">
-                  🎚️
+                <div className="w-20 h-20 rounded-full bg-[#1c1412]/80 border border-stone-800 flex items-center justify-center text-stone-400 shadow-xl relative overflow-hidden group-hover:border-stone-700 transition-colors">
+                  <Music className={`w-9 h-9 text-slate-400 ${isPlaying ? "animate-pulse" : ""}`} />
+                  {isPlaying && (
+                    <div className="absolute inset-0 bg-white/5 flex items-center justify-center pointer-events-none">
+                      <Disc className="w-16 h-16 text-white/5 animate-spin" style={{ animationDuration: '8s' }} />
+                    </div>
+                  )}
                 </div>
-                <p className="text-xs tracking-widest text-neutral-500 uppercase">
-                  QUANTUMPLAYERAI Engine Active
-                </p>
+                <div className="flex flex-col gap-1">
+                  <p className="text-[10px] font-sans font-bold tracking-[0.2em] text-stone-300 uppercase">
+                    LOCAL STREAM ACTIVE
+                  </p>
+                  <p className="text-[8px] font-sans text-stone-500 uppercase tracking-widest leading-relaxed">
+                    Direct Lossless Playback
+                  </p>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -229,9 +239,6 @@ export function DoubleDinPlayer({
 
                 {/* Dynamic Genre Tag overlay */}
                 <div className="flex items-center justify-center gap-2.5 mt-4">
-                  <span className="text-[9px] font-sans font-semibold tracking-[0.12em] text-white bg-white/10 px-3 py-1 rounded-full border border-white/20 shadow-[0_0_10px_rgba(255,255,255,0.1)] uppercase">
-                    Hi-Fidelity Lossless
-                  </span>
                   <span className="text-[9px] font-sans font-semibold tracking-[0.12em] text-stone-300 bg-stone-900 px-3 py-1 rounded-full border border-stone-800 uppercase font-light">
                     {currentTrack.genre || "Lossless Direct"}
                   </span>
@@ -389,19 +396,6 @@ export function DoubleDinPlayer({
         <span className="text-[10px] font-sans font-semibold text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.3)] min-w-[36px] text-right">
           {isMuted ? "MUTED" : `${Math.round(volume * 100)}%`}
         </span>
-
-        {/* COMP BASS MAX OVERLAP */}
-        <button
-          onClick={onToggleMaxBass}
-          className={`px-3 py-1.5 rounded-xl border font-sans text-[9px] font-semibold uppercase tracking-wider transition-all cursor-pointer ${
-            isMaxBass
-              ? "bg-[#4a1515] border-[#991b1b] text-red-100 animate-pulse shadow-[0_0_12px_rgba(153,27,27,0.5)]"
-              : "bg-stone-900 hover:bg-stone-850 border-stone-800 text-stone-400 hover:text-white"
-          }`}
-          title="Boost Bass 100%"
-        >
-          💥 BASS MAX
-        </button>
       </div>
 
       {/* BOTTOM SPECTRUM WAVEFORM (Embedded directly inside player) */}

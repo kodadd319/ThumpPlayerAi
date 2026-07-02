@@ -20,6 +20,12 @@ export const BassKnob: React.FC<BassKnobProps> = ({
   const valueRef = useRef<number>(value);
   const centerRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
+  const isDraggingRef = useRef(false);
+  const startAngleRef = useRef(0);
+  const startValueRef = useRef(value);
+  const hasMovedRef = useRef(false);
+  const startPointerPosRef = useRef({ x: 0, y: 0 });
+
   // Synchronize internal valueRef when state changes from parent
   useEffect(() => {
     valueRef.current = value;
@@ -29,59 +35,93 @@ export const BassKnob: React.FC<BassKnobProps> = ({
   const percent = (value - min) / (max - min);
   const rotationDegrees = -135 + percent * 270;
 
-  const updateValueFromCoords = (clientX: number, clientY: number) => {
-    const { x: centerX, y: centerY } = centerRef.current;
-    const dx = clientX - centerX;
-    const dy = clientY - centerY;
-
-    const radius = Math.sqrt(dx * dx + dy * dy);
-    // Ignore moves extremely close to center to avoid noisy angular jumps
-    if (radius < 8) return;
-
-    // Angle relative to straight up (0 deg is top, positive is right/clockwise, negative is left/counter-clockwise)
-    let angle = Math.atan2(dx, -dy) * (180 / Math.PI); // -180 to 180
-
-    let targetPercent = 0;
-    if (angle >= -135 && angle <= 135) {
-      targetPercent = (angle + 135) / 270;
-    } else {
-      // In the bottom dead-zone (absolute angle > 135)
-      // We clamp to 100% (1) or 0% (0) based on which side the previous value was closer to
-      if (valueRef.current > (min + max) / 2) {
-        targetPercent = 1;
-      } else {
-        targetPercent = 0;
-      }
-    }
-
-    const nextVal = min + targetPercent * (max - min);
-    valueRef.current = nextVal;
-    onChange(Math.round(nextVal));
-  };
-
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (disabled) return;
-    setIsDragging(true);
-    knobRef.current?.setPointerCapture(e.pointerId);
-
+    
     if (!knobRef.current) return;
-    const rect = knobRef.current.getBoundingClientRect();
-    centerRef.current = {
-      x: rect.left + rect.width / 2,
-      y: rect.top + rect.height / 2,
-    };
+    knobRef.current.setPointerCapture(e.pointerId);
 
-    updateValueFromCoords(e.clientX, e.clientY);
+    const rect = knobRef.current.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    centerRef.current = { x: centerX, y: centerY };
+
+    const dx = e.clientX - centerX;
+    const dy = e.clientY - centerY;
+    const angle = Math.atan2(dx, -dy) * (180 / Math.PI); // -180 to 180
+
+    isDraggingRef.current = true;
+    setIsDragging(true);
+    hasMovedRef.current = false;
+    startPointerPosRef.current = { x: e.clientX, y: e.clientY };
+    startAngleRef.current = angle;
+    startValueRef.current = valueRef.current;
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDragging || disabled) return;
-    updateValueFromCoords(e.clientX, e.clientY);
+    if (!isDraggingRef.current || disabled) return;
+
+    const dist = Math.hypot(e.clientX - startPointerPosRef.current.x, e.clientY - startPointerPosRef.current.y);
+    if (dist > 3) {
+      hasMovedRef.current = true;
+    }
+
+    if (hasMovedRef.current) {
+      const { x: centerX, y: centerY } = centerRef.current;
+      const dx = e.clientX - centerX;
+      const dy = e.clientY - centerY;
+      const currentAngle = Math.atan2(dx, -dy) * (180 / Math.PI);
+
+      let deltaAngle = currentAngle - startAngleRef.current;
+      if (deltaAngle > 180) deltaAngle -= 360;
+      if (deltaAngle < -180) deltaAngle += 360;
+
+      // Scale deltaAngle (270deg corresponds to max - min)
+      const valueDelta = (deltaAngle / 270) * (max - min);
+      let nextVal = startValueRef.current + valueDelta;
+
+      if (nextVal < min) nextVal = min;
+      if (nextVal > max) nextVal = max;
+
+      valueRef.current = nextVal;
+      onChange(Math.round(nextVal));
+    }
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current) return;
+
+    isDraggingRef.current = false;
     setIsDragging(false);
     knobRef.current?.releasePointerCapture(e.pointerId);
+
+    // If they just tapped/clicked without dragging, set the value directly to the tap angle
+    if (!hasMovedRef.current) {
+      const { x: centerX, y: centerY } = centerRef.current;
+      const dx = e.clientX - centerX;
+      const dy = e.clientY - centerY;
+      const radius = Math.hypot(dx, dy);
+
+      if (radius > 8) {
+        const angle = Math.atan2(dx, -dy) * (180 / Math.PI);
+        let targetPercent = 0;
+        if (angle >= -135 && angle <= 135) {
+          targetPercent = (angle + 135) / 270;
+          const nextVal = min + targetPercent * (max - min);
+          valueRef.current = nextVal;
+          onChange(Math.round(nextVal));
+        } else {
+          // Bottom dead-zone
+          if (angle > 135) {
+            valueRef.current = max;
+            onChange(max);
+          } else if (angle < -135) {
+            valueRef.current = min;
+            onChange(min);
+          }
+        }
+      }
+    }
   };
 
   // Keyboard navigation support
@@ -152,7 +192,7 @@ export const BassKnob: React.FC<BassKnobProps> = ({
             strokeDasharray={`${percent * (2 * Math.PI * 42 * 0.75)} ${2 * Math.PI * 42}`}
             strokeLinecap="round"
             transform="rotate(135 50 50)"
-            className="transition-all duration-75"
+            className={isDragging ? "" : "transition-all duration-150"}
             style={{
               filter: percent > 0 
                 ? "drop-shadow(0 0 5px rgba(255, 255, 255, 0.95)) drop-shadow(0 0 10px rgba(255, 255, 255, 0.5))"
@@ -193,7 +233,7 @@ export const BassKnob: React.FC<BassKnobProps> = ({
           
           {/* Main Dial Face: Realistic Radial Brushed Chrome/Aluminum using a fine Conic Gradient */}
           <div 
-            className="absolute inset-[6px] rounded-full pointer-events-none transition-transform duration-75"
+            className={`absolute inset-[6px] rounded-full pointer-events-none ${isDragging ? "" : "transition-transform duration-150"}`}
             style={{
               transform: `rotate(${rotationDegrees}deg)`,
               // Conic gradient produces the anisotropic pie-slice metallic reflections seen in the photo

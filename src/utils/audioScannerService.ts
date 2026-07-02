@@ -50,6 +50,11 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   };
   console.error("Firestore Ingestion/Security Error Caught:", JSON.stringify(errPayload, null, 2));
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("firestore-error", { detail: errPayload }));
+  }
+
   throw new Error(JSON.stringify(errPayload));
 }
 

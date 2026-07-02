@@ -35,3 +35,13 @@ export interface Preset {
   delayOffsetMs: number;
   isPremium?: boolean;
 }
+
+export interface VideoTrack {
+  id: string;
+  name: string;
+  url: string;
+  duration: string;
+  creator: string;
+  category: string;
+  thumbnail: string;
+}

@@ -1,27 +1,32 @@
-const DB_NAME = "quantum-video-locker";
-const STORE_NAME = "videos";
-const DB_VERSION = 1;
+import { openMediaDB, LocalVideo } from "./localMediaStorage";
 
 export function openVideoDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME);
-      }
-    };
-  });
+  return openMediaDB();
 }
 
 export async function storeVideoBlob(id: string, blob: Blob): Promise<void> {
-  const db = await openVideoDB();
+  const db = await openMediaDB();
   return new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, "readwrite");
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.put(blob, id);
+    const transaction = db.transaction("videos", "readwrite");
+    const store = transaction.objectStore("videos");
+    
+    // In videoStorage.ts, this was historically used to just store the raw blob.
+    // We can store it as a LocalVideo object or a raw Blob.
+    // To maintain compatibility with VideoView.tsx which might put/get raw blob,
+    // let's check if the store has a keyPath. In localMediaStorage.ts, we used { keyPath: "id" }.
+    // Let's make sure we put an object with the ID.
+    const record: Partial<LocalVideo> = {
+      id: id,
+      blob: blob,
+      name: id.startsWith("offline-") ? "Offline Video" : "Local Video",
+      duration: "Local File",
+      creator: "Personal Stream",
+      category: "Personal Video",
+      thumbnail: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&auto=format&fit=crop&q=80",
+      createdAt: new Date().toISOString()
+    };
+    
+    const request = store.put(record);
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve();
   });
@@ -29,31 +34,40 @@ export async function storeVideoBlob(id: string, blob: Blob): Promise<void> {
 
 export async function getVideoBlob(id: string): Promise<Blob | null> {
   try {
-    const db = await openVideoDB();
+    const db = await openMediaDB();
     return new Promise<Blob | null>((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, "readonly");
-      const store = transaction.objectStore(STORE_NAME);
+      const transaction = db.transaction("videos", "readonly");
+      const store = transaction.objectStore("videos");
       const request = store.get(id);
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result || null);
+      request.onsuccess = () => {
+        const result = request.result;
+        if (result && result.blob) {
+          resolve(result.blob);
+        } else if (result instanceof Blob) {
+          resolve(result);
+        } else {
+          resolve(null);
+        }
+      };
     });
   } catch (err) {
-    console.error("IndexedDB error:", err);
+    console.error("IndexedDB videoStorage error:", err);
     return null;
   }
 }
 
 export async function deleteVideoBlob(id: string): Promise<void> {
   try {
-    const db = await openVideoDB();
+    const db = await openMediaDB();
     return new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, "readwrite");
-      const store = transaction.objectStore(STORE_NAME);
+      const transaction = db.transaction("videos", "readwrite");
+      const store = transaction.objectStore("videos");
       const request = store.delete(id);
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve();
     });
   } catch (err) {
-    console.error("IndexedDB delete error:", err);
+    console.error("IndexedDB delete videoStorage error:", err);
   }
 }

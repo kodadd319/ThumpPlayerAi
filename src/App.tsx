@@ -32,7 +32,7 @@ import {
   X,
   LogOut
 } from "lucide-react"; 
-import { Track, VehicleInfo, DspSettings, Preset } from "./types"; 
+import { Track, VehicleInfo, DspSettings, Preset, VideoTrack } from "./types"; 
 import jsmediatags from "jsmediatags/dist/jsmediatags.min.js";
 import { CarAudioEngine } from "./utils/audioEngine"; 
 import { BassKnob } from "./components/BassKnob"; 
@@ -43,7 +43,9 @@ import { AuthView } from "./components/AuthView";
 import { MyMusicView } from "./components/MyMusicView"; 
 import { UpgradeView } from "./components/UpgradeView";
 import { AiEnhancementView } from "./components/AiEnhancementView";
+import { AiVideoEnhancementView } from "./components/AiVideoEnhancementView";
 import { VideoView } from "./components/VideoView";
+import { MyVideosView } from "./components/MyVideosView";
 import { motion, AnimatePresence } from "motion/react"; 
 
 // Firebase Integrations Block 
@@ -51,6 +53,7 @@ import { auth, db, storage, googleProvider } from "./firebase";
 import { onAuthStateChanged, signOut, User } from "firebase/auth"; 
 import { doc, getDoc, setDoc, collection, addDoc, query, where, onSnapshot, deleteDoc } from "firebase/firestore"; 
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage"; 
+import { getLocalTracks, storeLocalTrack, deleteLocalTrack, getLocalVideos, storeLocalVideo, deleteLocalVideo } from "./utils/localMediaStorage"; 
 
 // Standard Operation Types for Firestore Hardened Audits 
 enum OperationType {   
@@ -64,8 +67,14 @@ enum OperationType {
 
 // Global Secure Firestore Error Handling Wrapper 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {   
+  const errMsg = error instanceof Error ? error.message : String(error);
+  const isQuotaError = errMsg.toLowerCase().includes("quota exceeded") || 
+                       errMsg.toLowerCase().includes("resource-exhausted") ||
+                       errMsg.toLowerCase().includes("quota") ||
+                       errMsg.toLowerCase().includes("exceeded");
+
   const errPayload = {     
-    error: error instanceof Error ? error.message : String(error),     
+    error: errMsg,     
     authInfo: {       
       userId: auth.currentUser?.uid || null,       
       email: auth.currentUser?.email || null,       
@@ -79,7 +88,21 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     },     
     operationType,     
     path   };   
+
+  if (isQuotaError) {
+    console.warn("Firestore Quota Exceeded. Safely failing back to offline / local IndexedDB state:", errMsg);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("firestore-error", { detail: errPayload }));
+    }
+    return;
+  }
+
   console.error("Firestore Security/Execution Violation Caught:", JSON.stringify(errPayload, null, 2));   
+  
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("firestore-error", { detail: errPayload }));
+  }
+
   throw new Error(JSON.stringify(errPayload)); 
 }
 
@@ -88,12 +111,8 @@ function scanMetadata(file: File): Promise<{ title: string; artist: string; albu
   return new Promise((resolve) => {     
     let defaultArtist = "Unknown Artist";     
     let defaultAlbum = "Unknown Album";     
-    let defaultTitle = file ? file.name.replace(/\.[^/.]+$/, "") : "Unknown Track";          
-    if (file && defaultTitle.includes(" - ")) {       
-      const parts = defaultTitle.split(" - ");       
-      defaultArtist = parts[0].trim();       
-      defaultTitle = parts[1].trim();     
-    }
+    // Fall back to actual file name as the title
+    let defaultTitle = file ? file.name : "Unknown Track";
 
     try {
       const jst = (jsmediatags as any)?.read ? jsmediatags : (jsmediatags as any)?.default;
@@ -107,9 +126,10 @@ function scanMetadata(file: File): Promise<{ title: string; artist: string; albu
         onSuccess: (tag: any) => {
           try {
             const tags = tag?.tags || {};
-            const title = tags.title ? String(tags.title).trim() : defaultTitle;
-            const artist = tags.artist ? String(tags.artist).trim() : defaultArtist;
-            const album = tags.album ? String(tags.album).trim() : defaultAlbum;
+            // If tag title/artist/album is empty, fall back to exact filename as requested
+            const title = tags.title && String(tags.title).trim() ? String(tags.title).trim() : defaultTitle;
+            const artist = tags.artist && String(tags.artist).trim() ? String(tags.artist).trim() : defaultArtist;
+            const album = tags.album && String(tags.album).trim() ? String(tags.album).trim() : defaultAlbum;
             let imageUrl: string | undefined = undefined;
 
             if (tags.picture) {
@@ -141,6 +161,93 @@ function scanMetadata(file: File): Promise<{ title: string; artist: string; albu
       resolve({ title: defaultTitle, artist: defaultArtist, album: defaultAlbum, albumArtUrl: null });
     }
   }); 
+}
+
+// Extract thumbnail frame and metadata from local video file
+function scanVideoMetadata(file: File): Promise<{ title: string; creator: string; thumbnail: string; duration: string }> {
+  return new Promise((resolve) => {
+    // Fall back to actual file name as the title
+    const defaultTitle = file ? file.name : "Unknown Video";
+    const defaultCreator = "Local Creator";
+    let durationStr = "Local Video";
+
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+
+    const url = URL.createObjectURL(file);
+    video.src = url;
+
+    // Timeout fallback after 2.5 seconds to prevent stalling the upload flow
+    const timeout = setTimeout(() => {
+      video.src = "";
+      URL.revokeObjectURL(url);
+      resolve({
+        title: defaultTitle,
+        creator: defaultCreator,
+        thumbnail: "", // Fallback to placeholder UI render
+        duration: durationStr
+      });
+    }, 2500);
+
+    video.onloadedmetadata = () => {
+      const d = video.duration;
+      if (!isNaN(d) && d > 0) {
+        const mins = Math.floor(d / 60);
+        const secs = Math.floor(d % 60);
+        durationStr = `${mins}:${secs.toString().padStart(2, "0")}`;
+      }
+      // Seek to 10% of the video to capture an interesting frame instead of a black intro frame
+      const seekTime = Math.min(1.0, video.duration * 0.1);
+      video.currentTime = seekTime;
+    };
+
+    video.onseeked = () => {
+      clearTimeout(timeout);
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 360;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+          video.src = "";
+          URL.revokeObjectURL(url);
+          resolve({
+            title: defaultTitle,
+            creator: defaultCreator,
+            thumbnail: dataUrl,
+            duration: durationStr
+          });
+          return;
+        }
+      } catch (err) {
+        console.error("Failed to capture video frame:", err);
+      }
+      video.src = "";
+      URL.revokeObjectURL(url);
+      resolve({
+        title: defaultTitle,
+        creator: defaultCreator,
+        thumbnail: "",
+        duration: durationStr
+      });
+    };
+
+    video.onerror = () => {
+      clearTimeout(timeout);
+      video.src = "";
+      URL.revokeObjectURL(url);
+      resolve({
+        title: defaultTitle,
+        creator: defaultCreator,
+        thumbnail: "",
+        duration: durationStr
+      });
+    };
+  });
 }
 
 // Sound presets designed for car audio rigs 
@@ -201,10 +308,26 @@ const BUILTIN_PRESETS: Preset[] = [
 ]; 
 
 export default function App() {   
-  const [currentView, setCurrentView] = useState<"landing" | "auth" | "player" | "mymusic" | "privacy" | "agreement" | "upgrade" | "ai_enhancement" | "video">("landing");   
+  const [currentView, setCurrentView] = useState<"landing" | "auth" | "player" | "mymusic" | "myvideos" | "privacy" | "agreement" | "upgrade" | "ai_enhancement" | "ai_enhancement_audio" | "ai_enhancement_video" | "video">("landing");   
   const [subscriptionTier, setSubscriptionTier] = useState<"free" | "paid">(
     () => (localStorage.getItem("thumplayer_sub_tier") as "free" | "paid") || "free"
   );
+  // Shared AI Video states
+  const [selectedVideo, setSelectedVideo] = useState<VideoTrack | null>(null);
+  const [activeModel, setActiveModel] = useState<"quantum-scale" | "deep-cinema" | "chroma-hdr">("quantum-scale");
+  const [upscaleTarget, setUpscaleTarget] = useState<"HD" | "2K" | "4K" | "8K">("4K");
+  const [colorEnhancement, setColorEnhancement] = useState<"hdr" | "vivid" | "lowlight" | "crisp" | "none">("hdr");
+  const [smoothMotion, setSmoothMotion] = useState<boolean>(true);
+  const [turboMode, setTurboMode] = useState<boolean>(false);
+  const [aiOptimizedFilters, setAiOptimizedFilters] = useState<{
+    brightness: number;
+    contrast: number;
+    saturation: number;
+    sharpness: number;
+    hueRotate: number;
+    sepia: number;
+    justification: string;
+  } | null>(null);
   const [globalPremiumPrompt, setGlobalPremiumPrompt] = useState<string>("");
   const [playlist, setPlaylist] = useState<Track[]>([]);   
   const [playbackQueue, setPlaybackQueue] = useState<Track[]>([]);
@@ -267,7 +390,51 @@ export default function App() {
   const [dialedNumber, setDialedNumber] = useState("");   
   const [callStatus, setCallStatus] = useState("");   
   const [loadedTrackId, setLoadedTrackId] = useState<string | null>(null);
+  const [quotaError, setQuotaError] = useState<{
+    message: string;
+    path?: string | null;
+    operationType?: string | null;
+  } | null>(null);
   const lastSavedSettingsRef = useRef<any>(null);
+
+  const refreshLocalMedia = async () => {
+    try {
+      const dbTracks = await getLocalTracks();
+      const songs: Track[] = dbTracks.map((t) => ({
+        id: t.id,
+        name: t.name,
+        artist: t.artist,
+        album: t.album,
+        duration: t.duration,
+        genre: t.genre,
+        url: (t as any).path || (t as any).url || `local-db://${t.id}`,
+        imageUrl: t.imageUrl,
+        albumArtUrl: t.albumArtUrl || t.imageUrl || null
+      }));
+      setFirestoreTracks(songs);
+
+      const dbVideos = await getLocalVideos();
+      const vids = dbVideos.map((v) => ({
+        id: v.id,
+        name: v.name,
+        url: `local-db://${v.id}`,
+        duration: v.duration,
+        creator: v.creator,
+        category: v.category,
+        thumbnail: v.thumbnail,
+        createdAt: v.createdAt
+      }));
+      setFirestoreVideos(vids);
+      return { songs, vids };
+    } catch (err) {
+      console.error("Failed refreshing local media database:", err);
+      return { songs: [], vids: [] };
+    }
+  };
+
+  useEffect(() => {
+    refreshLocalMedia();
+  }, []);
 
   useEffect(() => {     
     const updateTime = () => {       
@@ -282,6 +449,52 @@ export default function App() {
     updateTime();     
     const timer = setInterval(updateTime, 1000);     
     return () => clearInterval(timer);   
+  }, []);
+
+  useEffect(() => {
+    const handleFirestoreErrorEvent = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const detail = customEvent.detail;
+      if (detail && detail.error && (detail.error.includes("Quota exceeded") || detail.error.toLowerCase().includes("resource-exhausted"))) {
+        setQuotaError({
+          message: detail.error,
+          path: detail.path,
+          operationType: detail.operationType
+        });
+      }
+    };
+    
+    const handleGlobalError = (event: ErrorEvent) => {
+      const msg = event.message || "";
+      if (msg.includes("Quota exceeded") || msg.toLowerCase().includes("resource-exhausted")) {
+        setQuotaError({
+          message: msg,
+          path: "unknown",
+          operationType: "unknown"
+        });
+      }
+    };
+
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      const msg = reason instanceof Error ? reason.message : String(reason);
+      if (msg.includes("Quota exceeded") || msg.toLowerCase().includes("resource-exhausted")) {
+        setQuotaError({
+          message: msg,
+          path: "unknown",
+          operationType: "unknown"
+        });
+      }
+    };
+
+    window.addEventListener("firestore-error", handleFirestoreErrorEvent);
+    window.addEventListener("error", handleGlobalError);
+    window.addEventListener("unhandledrejection", handleRejection);
+    return () => {
+      window.removeEventListener("firestore-error", handleFirestoreErrorEvent);
+      window.removeEventListener("error", handleGlobalError);
+      window.removeEventListener("unhandledrejection", handleRejection);
+    };
   }, []);
 
   useEffect(() => {     
@@ -385,54 +598,71 @@ export default function App() {
           }         
         }, (err) => {           
           handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);         
+          // Fallback to localStorage cached user settings when Firestore is offline or quota exceeded
+          try {
+            const cached = localStorage.getItem("quantumplayer_user_settings");
+            if (cached) {
+              const data = JSON.parse(cached);
+              console.log("Firestore settings subscription failed. Restored configurations from local cache:", data);
+              lastSavedSettingsRef.current = data;
+              if (data.accentTheme) setAccentTheme(data.accentTheme);
+              if (typeof data.volume === "number") {
+                setVolume(data.volume);
+                if (audioRef.current) audioRef.current.volume = data.volume;
+              }
+              if (typeof data.isMuted === "boolean") {
+                setIsMuted(data.isMuted);
+                if (audioRef.current) audioRef.current.muted = data.isMuted;
+              }
+              if (data.repeatMode) setRepeatMode(data.repeatMode);
+              if (typeof data.shuffleMode === "boolean") setShuffleMode(data.shuffleMode);
+              if (data.subscriptionTier) setSubscriptionTier(data.subscriptionTier);
+              if (data.currentTrackId !== undefined) setLoadedTrackId(data.currentTrackId);
+              if (data.selectedPresetName) setSelectedPresetName(data.selectedPresetName);
+              if (data.customEqBands !== undefined) setCustomEqBands(data.customEqBands);
+              if (typeof data.isMaxBass === "boolean") setIsMaxBass(data.isMaxBass);
+              if (data.vehicleInfo) setVehicleInfo(prev => ({ ...prev, ...data.vehicleInfo }));
+              if (data.dspSettings) setDspSettings(prev => ({ ...prev, ...data.dspSettings }));
+            } else {
+              const initialData = {               
+                uid: user.uid,               
+                accentTheme: "cyan" as const,               
+                lastLogin: new Date().toISOString(),
+                volume: 0.85,
+                isMuted: false,
+                repeatMode: "all" as const,
+                shuffleMode: false,
+                subscriptionTier: (user.email === "jkoehler319@gmail.com" ? "paid" : "free") as "free" | "paid",
+                currentTrackId: null,
+                selectedPresetName: "Hip hop",
+                customEqBands: null,
+                isMaxBass: false,
+                vehicleInfo: {
+                  vehicleType: "Sedan",
+                  subwooferConfig: "Single 12\" Sub",
+                  soundPreference: "SQL (Sound Quality Loud)"
+                },
+                dspSettings: {
+                  eqBands: [4, 1, 0, 2, 3],
+                  bassBoost: 50.0,
+                  reverbWet: 0.08,
+                  delayOffsetMs: 12,
+                  highPassFilterHz: 30,
+                  subCrossoverHz: 80,
+                  justification: "ElitePlayer offline settings loaded. Enjoy offline music playing!"
+                }
+              };
+              lastSavedSettingsRef.current = initialData;
+            }
+          } catch (cacheErr) {
+            console.error("Failed to parse cached settings during fallback:", cacheErr);
+          }
         });         
-        const tracksQuery = query(collection(db, "tracks"), where("uid", "==", user.uid));         
-        const unsubscribeTracks = onSnapshot(tracksQuery, (querySnapshot) => {           
-          const songs: Track[] = [];           
-          querySnapshot.forEach((docSnap) => {             
-            const data = docSnap.data();             
-            songs.push({               
-              id: docSnap.id,               
-              name: data.name || "Cloud Track",               
-              artist: data.artist || "Anonymous Streamer",               
-              album: data.album || "Cloud Catalog Single",               
-              duration: data.duration || 180,               
-              genre: data.genre || "Bass Head Trap",               
-              url: data.url,
-              imageUrl: data.imageUrl || "",
-              albumArtUrl: data.albumArtUrl || data.imageUrl || null
-            });           
-          });           
-          setFirestoreTracks(songs);         
-        }, (err) => {           
-          handleFirestoreError(err, OperationType.LIST, "tracks");         
-        });         
-
-        const videosQuery = query(collection(db, "videos"), where("uid", "==", user.uid));
-        const unsubscribeVideos = onSnapshot(videosQuery, (querySnapshot) => {
-          const vids: any[] = [];
-          querySnapshot.forEach((docSnap) => {
-            const data = docSnap.data();
-            vids.push({
-              id: docSnap.id,
-              name: data.name || "Cloud Video",
-              url: data.url,
-              duration: data.duration || "0:15",
-              creator: data.creator || "Personal Upload",
-              category: data.category || "Personal Video",
-              thumbnail: data.thumbnail || "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&auto=format&fit=crop&q=80",
-              createdAt: data.createdAt || new Date().toISOString()
-            });
-          });
-          setFirestoreVideos(vids);
-        }, (err) => {
-          handleFirestoreError(err, OperationType.LIST, "videos");
-        });
+        // Unconditionally refresh local media from IndexedDB
+        refreshLocalMedia();
 
         return () => {           
           unsubscribeSettings();           
-          unsubscribeTracks();         
-          unsubscribeVideos();
         };       
       } else {         
         setCurrentUser(null);         
@@ -476,7 +706,7 @@ export default function App() {
   useEffect(() => {     
     if (!authLoading) {
       if (!isLoggedIn) {       
-        const protectedViews = ["player", "mymusic", "upgrade", "ai_enhancement", "video"];
+        const protectedViews = ["player", "mymusic", "upgrade", "ai_enhancement", "ai_enhancement_audio", "ai_enhancement_video", "video"];
         if (protectedViews.includes(currentView)) {
           setCurrentView("auth");
         }
@@ -491,6 +721,10 @@ export default function App() {
   const handleAccentThemeChange = async (theme: "cyan" | "cherry" | "chrome") => {     
     setAccentTheme(theme);     
     if (currentUser) {       
+      if (quotaError) {
+        console.warn("Firestore Quota Exceeded. Skipping remote theme save, preserved locally.");
+        return;
+      }
       try {         
         const userDocRef = doc(db, "users", currentUser.uid);         
         await setDoc(userDocRef, {           
@@ -506,28 +740,6 @@ export default function App() {
 
   useEffect(() => {     
     const sampleTracks: Track[] = [       
-      {         
-        id: "sample-40hz",         
-        name: "40Hz Subwoofer Competition Tone",         
-        artist: "ElitePlayer DSP sweeps",         
-        album: "DSP Lab sweeps",         
-        duration: 90,         
-        genre: "SPL Test Sweep",         
-        file: new File([], "40hz_test_sweep.mp3"),
-        imageUrl: "https://images.unsplash.com/photo-1545454675-3531b543be5d?w=500&auto=format&fit=crop&q=80",
-        albumArtUrl: "https://images.unsplash.com/photo-1545454675-3531b543be5d?w=500&auto=format&fit=crop&q=80"
-      },       
-      {         
-        id: "sample-heavy",         
-        name: "Trap Heavy Bassline Drop (Synthesized)",         
-        artist: "ElitePlayer Beats",         
-        album: "Thump Synths Vol 1",         
-        duration: 120,         
-        genre: "Booming Trap",         
-        file: new File([], "trap_bassline_drop.mp3"),
-        imageUrl: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80",
-        albumArtUrl: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80"
-      },       
       {         
         id: "sample-sweep",         
         name: "25Hz - 120Hz Fast Sub Sweep",         
@@ -798,21 +1010,14 @@ export default function App() {
     if (audioRef.current) {       
       audioRef.current.volume = isMuted ? 0 : volume;     
     }   
-  }, [volume, isMuted]);   const handleAudioFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !currentUser) {
-      setUploadError("Please check authentication session or select a valid audio file.");
-      return;
-    }
+  }, [volume, isMuted]);
 
-    // Check Free Tier track upload restrictions safely
-    const currentUploadsCount = (playlist || []).filter(t => t && t.id && !t.id.startsWith("sample-")).length;
-    if ((subscriptionTier || "free") !== "paid" && (currentUploadsCount + 1) > 10) {
-      setGlobalPremiumPrompt(`Free Tier is limited to a maximum of 10 track uploads. You currently have ${currentUploadsCount} uploads. Please upgrade to enjoy unlimited high-fidelity track uploads!`);
-      setCurrentView("upgrade");
-      event.target.value = ""; 
-      return;
-    }
+  const handleAudioFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];     
+    if (!file) {       
+      setUploadError("Please select a valid audio file.");       
+      return;     
+    }     
 
     // 1. Initial State Fire-up
     setIsUploading(true);
@@ -821,88 +1026,62 @@ export default function App() {
     setUploadSuccess("");
 
     try {
+      setUploadProgress(20);
       // 2. Scan Audio Metadata on the Client Layer
       const metadata = await scanMetadata(file);
+      setUploadProgress(40);
 
-      // 3. Formulate Unique Cloud Path inside Storage Bucket
-      const timestamp = Date.now();
-      const storagePath = `tracks/${currentUser.uid}/${timestamp}_${file.name}`;
-      const storageRef = ref(storage, storagePath);
+      // Determine genre based on filename
+      let genre = "Bass Accent";
+      const fileLower = file.name.toLowerCase();
+      if (fileLower.includes("rap") || fileLower.includes("hip") || fileLower.includes("beat")) {
+        genre = "Hip Hop / Rap";
+      } else if (fileLower.includes("rock") || fileLower.includes("metal") || fileLower.includes("guitar")) {
+        genre = "Rock / Metal";
+      } else if (fileLower.includes("electro") || fileLower.includes("edm") || fileLower.includes("house") || fileLower.includes("dance")) {
+        genre = "EDM / Electronic";
+      } else if (fileLower.includes("pop") || fileLower.includes("rnb") || fileLower.includes("vocal")) {
+        genre = "Pop Vocal";
+      }
 
-      // 4. Fire the Resumable Streaming Connection Upload Link with correct audio/mpeg content-type metadata
-      const uploadTask = uploadBytesResumable(storageRef, file, { contentType: "audio/mpeg" });
+      setUploadProgress(60);
+      const trackId = `track_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      
+      // 3. Save directly to local IndexedDB
+      const localTrackRecord = {
+        id: trackId,
+        name: metadata.title || file.name.replace(/\.[^/.]+$/, ""),
+        artist: metadata.artist || "Anonymous Streamer",
+        album: metadata.album || "Local Catalog Single",
+        genre: genre,
+        duration: 180, // Default duration
+        imageUrl: metadata.imageUrl || "https://images.unsplash.com/photo-1545454675-3531b543be5d?w=500&auto=format&fit=crop&q=80",
+        albumArtUrl: metadata.albumArtUrl || null,
+        createdAt: new Date().toISOString(),
+        blob: file
+      };
 
-      uploadTask.on(
-        "state_changed",
-        (snapshot) => {
-          // Calculate current chunk completion progress percentage
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setUploadProgress(Math.round(progress));
-          console.log(`Uploading track payload to Firebase: ${Math.round(progress)}% complete`);
-        },
-        (error) => {
-          // Catch and process upload failures cleanly
-          console.error("Firebase Storage Upload Pipeline Aborted:", error);
-          setUploadError(`Storage Transfer Failed: ${error.message}`);
-          setIsUploading(false);
-          setUploadProgress(null);
-        },
-        async () => {
-          try {
-            // 5. Fetch Secure Live CDN URL from Storage Bucket
-            const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+      await storeLocalTrack(localTrackRecord);
+      setUploadProgress(100);
 
-            // Determine genre based on filename
-            let genre = "Bass Accent";
-            const fileLower = file.name.toLowerCase();
-            if (fileLower.includes("rap") || fileLower.includes("hip") || fileLower.includes("beat")) {
-              genre = "Hip Hop / Rap";
-            } else if (fileLower.includes("rock") || fileLower.includes("metal") || fileLower.includes("guitar")) {
-              genre = "Rock / Metal";
-            } else if (fileLower.includes("electro") || fileLower.includes("edm") || fileLower.includes("house") || fileLower.includes("dance")) {
-              genre = "EDM / Electronic";
-            } else if (fileLower.includes("pop") || fileLower.includes("rnb") || fileLower.includes("vocal")) {
-              genre = "Pop Vocal";
-            }
+      // 4. Success Finalization Flags reset
+      setUploadSuccess(`"${localTrackRecord.name}" saved to local device storage successfully!`);
+      setIsUploading(false);
+      setUploadProgress(null);
+      setLoadedTrackId(trackId);
+      setIsPlaying(false);
+      stopSyntheticOsc();
 
-            // 6. Save File Pointers to Firestore Document Database
-            const trackDocData = {
-              uid: currentUser.uid,
-              name: metadata.title || file.name.replace(/\.[^/.]+$/, ""),
-              artist: metadata.artist || "Anonymous Streamer",
-              album: metadata.album || "Cloud Catalog Single",
-              genre: genre,
-              duration: 180, // Default fallback metadata parameter
-              url: downloadUrl,
-              imageUrl: metadata.imageUrl || "https://images.unsplash.com/photo-1545454675-3531b543be5d?w=500&auto=format&fit=crop&q=80",
-              albumArtUrl: metadata.albumArtUrl || null,
-              createdAt: new Date().toISOString()
-            };
+      // Refresh the local tracks list in state
+      await refreshLocalMedia();
 
-            const docRef = await addDoc(collection(db, "tracks"), trackDocData);
-
-            // 7. Success Finalization Flags reset
-            setUploadSuccess(`"${trackDocData.name}" synced to audio cloud locker successfully!`);
-            setIsUploading(false);
-            setUploadProgress(null);
-            setLoadedTrackId(docRef.id);
-            setIsPlaying(false);
-            stopSyntheticOsc();
-            setCurrentView("mymusic");
-            
-            // Auto wipe notification notice after 4 seconds
-            setTimeout(() => setUploadSuccess(""), 4000);
-          } catch (dbErr: any) {
-            console.error("Failed to catalog track layout document inside Firestore:", dbErr);
-            setUploadError("Audio saved to storage, but database index linking failed.");
-            setIsUploading(false);
-            setUploadProgress(null);
-          }
-        }
-      );
+      setCurrentView("mymusic");
+      
+      // Auto wipe notification notice after 4 seconds
+      setTimeout(() => setUploadSuccess(""), 4000);
     } catch (err: any) {
       console.error("Critical tracking crash during file compilation process:", err);
-      setUploadError("Failed to initialize storage pipe infrastructure.");
+      setUploadError(`Failed to save file to local IndexedDB: ${err.message || err}`);
       setIsUploading(false);
       setUploadProgress(null);
     }
@@ -911,10 +1090,6 @@ export default function App() {
   const handleCloudFileUpload = handleAudioFileUpload;   
   
   const handleFileUpload = async (eOrFiles: React.ChangeEvent<HTMLInputElement> | File[]) => {     
-    if (!currentUser) {
-      setUploadError("Please check authentication session.");
-      return;
-    }
     let files: File[] = [];
     if (Array.isArray(eOrFiles)) {
       files = eOrFiles;
@@ -942,132 +1117,74 @@ export default function App() {
         const isVideo = file.type.startsWith("video/");
 
         if (isVideo) {
-          // Check Video Free Tier Limit
-          const currentCount = firestoreVideos.length;
-          if (subscriptionTier !== "paid" && (currentCount + successVideoCount + 1) > 5) {
-            console.warn("Skipping additional video: Free tier limit of 5 exceeded.");
-            continue;
+          const videoId = `video_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+          const videoMetadata = await scanVideoMetadata(file);
+
+          const videoData = {
+            id: videoId,
+            name: videoMetadata.title || file.name,
+            duration: videoMetadata.duration || "Local File",
+            creator: videoMetadata.creator || "Local Creator",
+            category: "Personal Video",
+            thumbnail: videoMetadata.thumbnail || "", // Save empty string if no frame so fallback works
+            createdAt: new Date().toISOString(),
+            blob: file
+          };
+
+          await storeLocalVideo(videoData);
+          if (!firstUploadedTrackId) {
+            firstUploadedTrackId = videoId;
           }
-
-          console.log(`Uploading video file ${i + 1}/${files.length}: ${file.name}`);
-          const timestamp = Date.now();
-          const storagePath = `videos/${currentUser.uid}/${timestamp}_${file.name}`;
-          const storageRef = ref(storage, storagePath);
-          const uploadTask = uploadBytesResumable(storageRef, file, { contentType: file.type });
-
-          await new Promise<void>((resolveUpload, rejectUpload) => {
-            uploadTask.on(
-              "state_changed",
-              (snapshot) => {
-                const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                const totalProgress = Math.round(((i / files.length) * 100) + (progress / files.length));
-                setUploadProgress(totalProgress);
-              },
-              (error) => {
-                console.error("Firebase Storage Video Upload Pipeline Aborted:", error);
-                rejectUpload(error);
-              },
-              async () => {
-                try {
-                  const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-                  const videoDocData = {
-                    uid: currentUser.uid,
-                    name: file.name.replace(/\.[^/.]+$/, ""),
-                    url: downloadUrl,
-                    duration: "0:15",
-                    creator: "Personal Upload",
-                    category: "Personal Video",
-                    thumbnail: "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=500&auto=format&fit=crop&q=80",
-                    createdAt: new Date().toISOString()
-                  };
-
-                  await addDoc(collection(db, "videos"), videoDocData);
-                  successVideoCount++;
-                  resolveUpload();
-                } catch (dbErr: any) {
-                  console.error("Failed to catalog video layout document inside Firestore:", dbErr);
-                  rejectUpload(dbErr);
-                }
-              }
-            );
-          });
+          successVideoCount++;
+          
+          const progressVal = Math.round(((i + 1) / files.length) * 100);
+          setUploadProgress(progressVal);
         } else {
-          // Check Audio Free Tier Limit
-          const currentUploadsCount = (playlist || []).filter(t => t && t.id && !t.id.startsWith("sample-")).length;
-          if ((subscriptionTier || "free") !== "paid" && (currentUploadsCount + successAudioCount + 1) > 10) {
-            console.warn("Skipping additional audio: Free tier limit of 10 exceeded.");
-            continue;
+          const metadata = await scanMetadata(file);
+
+          let genre = "Bass Accent";
+          const fileLower = file.name.toLowerCase();
+          if (fileLower.includes("rap") || fileLower.includes("hip") || fileLower.includes("beat")) {
+            genre = "Hip Hop / Rap";
+          } else if (fileLower.includes("rock") || fileLower.includes("metal") || fileLower.includes("guitar")) {
+            genre = "Rock / Metal";
+          } else if (fileLower.includes("electro") || fileLower.includes("edm") || fileLower.includes("house") || fileLower.includes("dance")) {
+            genre = "EDM / Electronic";
+          } else if (fileLower.includes("pop") || fileLower.includes("rnb") || fileLower.includes("vocal")) {
+            genre = "Pop Vocal";
           }
 
-          console.log(`Uploading audio file ${i + 1}/${files.length}: ${file.name}`);
-          const metadata = await scanMetadata(file);
-          const timestamp = Date.now();
-          const storagePath = `tracks/${currentUser.uid}/${timestamp}_${file.name}`;
-          const storageRef = ref(storage, storagePath);
-          const uploadTask = uploadBytesResumable(storageRef, file, { contentType: "audio/mpeg" });
+          const trackId = `track_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+          const localTrackRecord = {
+            id: trackId,
+            name: metadata.title || file.name,
+            artist: metadata.artist || "Unknown Artist",
+            album: metadata.album || "Unknown Album",
+            genre: genre,
+            duration: 180,
+            imageUrl: metadata.imageUrl || "", // empty if no artwork
+            albumArtUrl: metadata.albumArtUrl || null,
+            createdAt: new Date().toISOString(),
+            blob: file
+          };
 
-          await new Promise<void>((resolveUpload, rejectUpload) => {
-            uploadTask.on(
-              "state_changed",
-              (snapshot) => {
-                const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                const totalProgress = Math.round(((i / files.length) * 100) + (progress / files.length));
-                setUploadProgress(totalProgress);
-              },
-              (error) => {
-                console.error("Firebase Storage Audio Upload Pipeline Aborted:", error);
-                rejectUpload(error);
-              },
-              async () => {
-                try {
-                  const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-                  let genre = "Bass Accent";
-                  const fileLower = file.name.toLowerCase();
-                  if (fileLower.includes("rap") || fileLower.includes("hip") || fileLower.includes("beat")) {
-                    genre = "Hip Hop / Rap";
-                  } else if (fileLower.includes("rock") || fileLower.includes("metal") || fileLower.includes("guitar")) {
-                    genre = "Rock / Metal";
-                  } else if (fileLower.includes("electro") || fileLower.includes("edm") || fileLower.includes("house") || fileLower.includes("dance")) {
-                    genre = "EDM / Electronic";
-                  } else if (fileLower.includes("pop") || fileLower.includes("rnb") || fileLower.includes("vocal")) {
-                    genre = "Pop Vocal";
-                  }
+          await storeLocalTrack(localTrackRecord);
+          if (!firstUploadedTrackId) {
+            firstUploadedTrackId = trackId;
+          }
+          successAudioCount++;
 
-                  const trackDocData = {
-                    uid: currentUser.uid,
-                    name: metadata.title || file.name.replace(/\.[^/.]+$/, ""),
-                    artist: metadata.artist || "Anonymous Streamer",
-                    album: metadata.album || "Cloud Catalog Single",
-                    genre: genre,
-                    duration: 180,
-                    url: downloadUrl,
-                    imageUrl: metadata.imageUrl || "https://images.unsplash.com/photo-1545454675-3531b543be5d?w=500&auto=format&fit=crop&q=80",
-                    albumArtUrl: metadata.albumArtUrl || null,
-                    createdAt: new Date().toISOString()
-                  };
-
-                  const docRef = await addDoc(collection(db, "tracks"), trackDocData);
-                  if (!firstUploadedTrackId) {
-                    firstUploadedTrackId = docRef.id;
-                  }
-                  successAudioCount++;
-                  resolveUpload();
-                } catch (dbErr: any) {
-                  console.error("Failed to catalog track document inside Firestore:", dbErr);
-                  rejectUpload(dbErr);
-                }
-              }
-            );
-          });
+          const progressVal = Math.round(((i + 1) / files.length) * 100);
+          setUploadProgress(progressVal);
         }
       }
 
       if (successAudioCount > 0 && successVideoCount > 0) {
-        setUploadSuccess(`Uploaded ${successAudioCount} track(s) and ${successVideoCount} video(s)!`);
+        setUploadSuccess(`Saved ${successAudioCount} track(s) and ${successVideoCount} video(s) locally!`);
       } else if (successAudioCount > 0) {
-        setUploadSuccess(`Successfully uploaded ${successAudioCount} track(s) to your cloud library!`);
+        setUploadSuccess(`Successfully saved ${successAudioCount} track(s) to local device storage!`);
       } else if (successVideoCount > 0) {
-        setUploadSuccess(`Successfully synchronized ${successVideoCount} video(s) to your cloud video locker!`);
+        setUploadSuccess(`Successfully saved ${successVideoCount} video(s) to local device video storage!`);
       }
 
       setIsUploading(false);
@@ -1075,12 +1192,41 @@ export default function App() {
       setIsPlaying(false);
       stopSyntheticOsc();
 
+      // Refresh state from local media database
+      const { songs, vids } = await refreshLocalMedia();
+
       if (successVideoCount > 0 && successAudioCount === 0) {
         setCurrentView("video");
+        if (firstUploadedTrackId) {
+          const targetVideo = vids.find(v => v.id === firstUploadedTrackId);
+          if (targetVideo) {
+            setSelectedVideo(targetVideo);
+          } else if (vids.length > 0) {
+            setSelectedVideo(vids[vids.length - 1]);
+          }
+        } else if (vids.length > 0) {
+          setSelectedVideo(vids[vids.length - 1]);
+        }
       } else {
-        setCurrentView("mymusic");
+        setCurrentView("player");
         if (firstUploadedTrackId) {
           setLoadedTrackId(firstUploadedTrackId);
+          const sampleTracks: Track[] = [       
+            {         
+              id: "sample-sweep",         
+              name: "25Hz - 120Hz Fast Sub Sweep",         
+              artist: "DSP Cabin Acoustics",         
+              album: "Cabin Acoustics Calibrations",         
+              duration: 45,         
+              genre: "Frequency Sweep",         
+              file: new File([], "sub_sweep_acoustic.mp3"),
+              imageUrl: "https://images.unsplash.com/photo-1516280440614-37939bbacd6a?w=500&auto=format&fit=crop&q=80",
+              albumArtUrl: "https://images.unsplash.com/photo-1516280440614-37939bbacd6a?w=500&auto=format&fit=crop&q=80"
+            }     
+          ];
+          const fullPlaylist = [...sampleTracks, ...songs];
+          setPlaylist(fullPlaylist);
+          onPlayTrackById(firstUploadedTrackId, fullPlaylist);
         }
       }
 
@@ -1089,13 +1235,13 @@ export default function App() {
       
     } catch (err: any) {
       console.error("Critical tracking crash during file compilation process:", err);
-      setUploadError(`Failed to initialize storage pipe infrastructure: ${err.message || err}`);
+      setUploadError(`Failed to save files locally: ${err.message || err}`);
       setIsUploading(false);
       setUploadProgress(null);
     }
   };   
 
-  const loadTrackSource = (audio: HTMLAudioElement, track: Track) => {     
+  const loadTrackSource = async (audio: HTMLAudioElement, track: Track) => {     
     if (audio.src && audio.src.startsWith("blob:")) {       
       try {         
         URL.revokeObjectURL(audio.src);       
@@ -1104,8 +1250,30 @@ export default function App() {
       }     
     }     
     if (track.url) {       
-      audio.crossOrigin = "anonymous";
-      audio.src = track.url;     
+      if (track.url.startsWith("local-db://")) {
+        try {
+          audio.removeAttribute("crossorigin");
+          const trackId = track.url.replace("local-db://", "");
+          const dbTracks = await getLocalTracks();
+          const targetTrack = dbTracks.find(t => t.id === trackId);
+          if (targetTrack && targetTrack.blob) {
+            const blobUrl = URL.createObjectURL(targetTrack.blob);
+            audio.src = blobUrl;
+          } else {
+            throw new Error("Track blob not found in IndexedDB.");
+          }
+        } catch (err) {
+          console.error("Failed to load local database audio track:", err);
+          setUploadError("Failed to load audio file from your local storage.");
+        }
+      } else if (track.url.startsWith("content://") || track.url.startsWith("file://") || track.url.startsWith("/storage")) {
+        audio.removeAttribute("crossorigin");
+        const nativeUrl = (window as any).Capacitor?.convertFileSrc ? (window as any).Capacitor.convertFileSrc(track.url) : track.url;
+        audio.src = nativeUrl;
+      } else {
+        audio.crossOrigin = "anonymous";
+        audio.src = track.url;     
+      }
     } else if (track.file) {       
       audio.removeAttribute("crossorigin");
       audio.src = URL.createObjectURL(track.file);     
@@ -1186,12 +1354,26 @@ export default function App() {
     }
     
     if (hasChanged) {
-      console.log("Detecting local settings drift from Firestore. Diffs:", diffs);
+      console.log("Detecting local settings drift. Diffs:", diffs);
+      
+      // Always save to localStorage as a robust local fallback/cache layer
+      try {
+        localStorage.setItem("quantumplayer_user_settings", JSON.stringify(currentSettings));
+      } catch (cacheErr) {
+        console.warn("Failed to write user settings cache to localStorage:", cacheErr);
+      }
+
       // Optimistically update our comparison ref to avoid parallel execution race conditions
       lastSavedSettingsRef.current = {
         ...prev,
         ...currentSettings
       };
+      
+      // If Firestore database quota is exceeded, bypass the write operation completely to avoid console spam or SDK crash
+      if (quotaError) {
+        console.warn("Firestore Quota Exceeded. Skipping remote settings synchronization. Preferences safely saved in local storage.");
+        return;
+      }
       
       const userDocRef = doc(db, "users", currentUser.uid);
       setDoc(userDocRef, {
@@ -1334,13 +1516,13 @@ export default function App() {
     
     setIsPlaying(false);     
     setSongProgress(0);     
-    setTimeout(() => {       
+    setTimeout(async () => {       
       if (selection && selection.id.startsWith("sample-")) {         
         handlePlaySynthetic(selection);       
       } else {         
         const audio = audioRef.current;         
         if (audio && selection) {           
-          loadTrackSource(audio, selection);           
+          await loadTrackSource(audio, selection);           
           ensureEngine();           
           audio.play()             
             .then(() => setIsPlaying(true))             
@@ -1388,13 +1570,13 @@ export default function App() {
     
     setIsPlaying(false);     
     setSongProgress(0);     
-    setTimeout(() => {       
+    setTimeout(async () => {       
       if (selection && selection.id.startsWith("sample-")) {         
         handlePlaySynthetic(selection);       
       } else {         
         const audio = audioRef.current;         
         if (audio && selection) {           
-          loadTrackSource(audio, selection);           
+          await loadTrackSource(audio, selection);           
           ensureEngine();           
           audio.play()             
             .then(() => setIsPlaying(true))             
@@ -1596,7 +1778,7 @@ export default function App() {
     
     setIsPlaying(false);
     setCurrentView("player");
-    setTimeout(() => {
+    setTimeout(async () => {
       const track = queueToUse[idx];
       if (track) {
         if (track.id.startsWith("sample-")) {
@@ -1604,7 +1786,7 @@ export default function App() {
         } else {
           const audio = audioRef.current;
           if (audio) {
-            loadTrackSource(audio, track);
+            await loadTrackSource(audio, track);
             ensureEngine();
             audio.play()
               .then(() => setIsPlaying(true))
@@ -1618,19 +1800,21 @@ export default function App() {
   const deleteSelectedTracks = async (trackIds: string[]) => {
     if (trackIds.length === 0) return;
     const localIds = trackIds.filter(id => id.startsWith("local-"));
-    const cloudIds = trackIds.filter(id => !id.startsWith("local-") && !id.startsWith("sample-"));
+    const dbTrackIds = trackIds.filter(id => id.startsWith("track_"));
 
-    for (const cid of cloudIds) {
+    for (const id of dbTrackIds) {
       try {
-        await deleteDoc(doc(db, "tracks", cid));
-        console.log("Deleted cloud track safely:", cid);
+        await deleteLocalTrack(id);
+        console.log("Deleted local IndexedDB track successfully:", id);
       } catch (err) {
-        console.error("Failed deleting cloud track:", cid, err);
+        console.error("Failed deleting local track:", id, err);
       }
     }
 
+    await refreshLocalMedia();
+
     setPlaylist((prev) => {
-      const remaining = prev.filter(t => !localIds.includes(t.id));
+      const remaining = prev.filter(t => !localIds.includes(t.id) && !dbTrackIds.includes(t.id));
       const currentPlayingTrack = prev[currentTrackIndex];
       if (currentPlayingTrack && trackIds.includes(currentPlayingTrack.id)) {
         stopSyntheticOsc();
@@ -1644,6 +1828,22 @@ export default function App() {
       return remaining;
     });
   };   
+
+  const deleteSelectedVideos = async (videoIds: string[]) => {
+    if (videoIds.length === 0) return;
+    for (const id of videoIds) {
+      try {
+        await deleteLocalVideo(id);
+        console.log("Deleted local IndexedDB video successfully:", id);
+      } catch (err) {
+        console.error("Failed deleting local video:", id, err);
+      }
+    }
+    await refreshLocalMedia();
+    if (selectedVideo && videoIds.includes(selectedVideo.id)) {
+      setSelectedVideo(null);
+    }
+  };
 
   const handleEqValueChange = (bandIdx: number, newGainDb: number) => {     
     setSelectedPresetName("Custom Manual Tuning");     
@@ -1802,9 +2002,16 @@ export default function App() {
       else if (vehicleInfo.soundPreference === "SPL (Maximum Bass Head)") friendlySoundPref = "Deep Bass Thump";
       else if (vehicleInfo.soundPreference === "Vocal-centric") friendlySoundPref = "Crisp Vocals & Clear Melodies";
 
+      const user = auth.currentUser;
+      const token = user ? await user.getIdToken() : "";
+
       const response = await fetch("/api/optimize", {         
         method: "POST",         
-        headers: { "Content-Type": "application/json" },         
+        headers: { 
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+          ...(user?.uid ? { "x-user-uid": user.uid } : {})
+        },         
         body: JSON.stringify({           
           songTitle: activeName,           
           genre: activeGenre,           
@@ -1931,21 +2138,25 @@ export default function App() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -15, scale: 0.95 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              className="absolute left-0 mt-4 w-80 rounded-3xl bg-gradient-to-br from-[#0c1328] via-[#040814] to-[#010307] border-2 border-[#1f3050] shadow-[0_25px_60px_rgba(0,0,0,0.95)] overflow-hidden flex flex-col gap-2.5 p-4 z-[1102]"
+              style={{
+                background: "linear-gradient(135deg, #f9fafb 0%, #f3f4f6 15%, #e5e7eb 40%, #d1d5db 65%, #f3f4f6 85%, #9ca3af 100%)"
+              }}
+              className="absolute left-0 mt-4 w-80 rounded-3xl border-2 border-stone-400 shadow-[0_25px_60px_rgba(0,0,0,0.45),inset_0_1px_2px_rgba(255,255,255,0.95)] overflow-hidden flex flex-col gap-1.5 p-4 z-[1102]"
             >
               {/* Logo at the top - scaled up */}
-              <div className="flex flex-col items-center justify-center py-5 border-b-2 border-[#1f3050]/65 mb-4 px-4 bg-black/35 rounded-t-2xl gap-2.5">
-                <img src="/logo.png" alt="" referrerPolicy="no-referrer" className="w-16 h-16 rounded-xl object-cover shadow-[0_0_15px_rgba(255,255,255,0.2)] mb-1" />
-                <span className="text-lg font-sans font-semibold tracking-[0.2em] text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.65)] select-none text-center">QUANTUMPLAYERAI</span>
+              <div className="flex flex-col items-center justify-center py-5 border-b border-black/10 mb-2 px-4 bg-black/5 rounded-t-2xl gap-2.5">
+                <img src="/logo.png" alt="" referrerPolicy="no-referrer" className="w-16 h-16 rounded-xl object-cover shadow-[0_4px_12px_rgba(0,0,0,0.15)] mb-1" />
+                <span className="text-lg font-sans font-extrabold tracking-[0.2em] text-stone-900 drop-shadow-[0_1px_1px_rgba(255,255,255,0.85)] select-none text-center">QUANTUMPLAYERAI</span>
                 {currentUser?.email === "jkoehler319@gmail.com" && (
-                  <div className="flex flex-col items-center gap-1 bg-amber-500/10 border border-amber-500/30 p-2.5 rounded-2xl w-full text-center shadow-[0_0_15px_rgba(245,158,11,0.08)]">
-                    <span className="text-[9px] font-sans font-bold uppercase tracking-widest text-amber-400">ADMINISTRATOR PROFILE</span>
-                    <span className="text-[8.5px] font-sans text-stone-300 font-light lowercase">{currentUser.email}</span>
-                    <span className="text-[8px] font-sans font-bold uppercase tracking-wider text-emerald-400 mt-0.5">UNLIMITED ELITE TIER ACTIVE</span>
+                  <div className="flex flex-col items-center gap-1 bg-amber-500/15 border border-amber-600/30 p-2.5 rounded-2xl w-full text-center shadow-[0_0_10px_rgba(0,0,0,0.05)]">
+                     <span className="text-[9px] font-sans font-bold uppercase tracking-widest text-amber-800">ADMINISTRATOR PROFILE</span>
+                     <span className="text-[8.5px] font-sans text-stone-800 font-light lowercase">{currentUser.email}</span>
+                     <span className="text-[8px] font-sans font-bold uppercase tracking-wider text-emerald-700 mt-0.5">UNLIMITED ELITE TIER ACTIVE</span>
                   </div>
                 )}
               </div>
               {/* Options - larger fonts, increased spacing */}
+              {/* Audio Player */}
               <button
                 onClick={() => {
                   if (isLoggedIn) {
@@ -1955,33 +2166,16 @@ export default function App() {
                   }
                   setIsOpen(false);
                 }}
-                className={`w-full text-left font-sans font-medium uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-3.5 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
+                className={`w-full text-left font-sans font-semibold uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
                   currentView === "player"
-                    ? "bg-white/10 border-2 border-slate-350 text-white shadow-[0_0_12px_rgba(255,255,255,0.2)] font-semibold"
-                    : "text-slate-200 hover:bg-slate-900/65 hover:text-white hover:pl-5"
+                    ? "bg-black/10 border-2 border-stone-800 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-bold"
+                    : "text-stone-800 hover:bg-black/5 hover:text-black hover:pl-5"
                 }`}
               >
                 Audio Player
               </button>
 
-              <button
-                onClick={() => {
-                  if (isLoggedIn) {
-                    setCurrentView("video");
-                  } else {
-                    setCurrentView("auth");
-                  }
-                  setIsOpen(false);
-                }}
-                className={`w-full text-left font-sans font-medium uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-3.5 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
-                  currentView === "video"
-                    ? "bg-white/10 border-2 border-slate-350 text-white shadow-[0_0_12px_rgba(255,255,255,0.25)] font-semibold"
-                    : "text-slate-200 hover:bg-slate-900/65 hover:text-white hover:pl-5"
-                }`}
-              >
-                AI 4K Video Player
-              </button>
-
+              {/* My music */}
               <button
                 onClick={() => {
                   if (isLoggedIn) {
@@ -1991,15 +2185,92 @@ export default function App() {
                   }
                   setIsOpen(false);
                 }}
-                className={`w-full text-left font-sans font-medium uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-3.5 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
+                className={`w-full text-left font-sans font-semibold uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
                   currentView === "mymusic"
-                    ? "bg-white/10 border-2 border-slate-350 text-white shadow-[0_0_12px_rgba(255,255,255,0.2)] font-semibold"
-                    : "text-slate-200 hover:bg-slate-900/65 hover:text-white hover:pl-5"
+                    ? "bg-black/10 border-2 border-stone-800 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-bold"
+                    : "text-stone-800 hover:bg-[#eaeaea] hover:text-black hover:pl-5"
                 }`}
               >
                 My music
               </button>
 
+              {/* AI Audio Enhancement and Optimization Option */}
+              <button
+                onClick={() => {
+                  if (isLoggedIn) {
+                    setCurrentView("ai_enhancement_audio");
+                  } else {
+                    setCurrentView("auth");
+                  }
+                  setIsOpen(false);
+                }}
+                className={`w-full text-left font-sans font-semibold uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
+                  currentView === "ai_enhancement_audio"
+                    ? "bg-black/10 border-2 border-stone-800 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-bold"
+                    : "text-stone-800 hover:bg-black/5 hover:text-black hover:pl-5"
+                }`}
+              >
+                Ai audio enhancement and optimizer
+              </button>
+
+              {/* 4k Video Player */}
+              <button
+                onClick={() => {
+                  if (isLoggedIn) {
+                    setCurrentView("video");
+                  } else {
+                    setCurrentView("auth");
+                  }
+                  setIsOpen(false);
+                }}
+                className={`w-full text-left font-sans font-semibold uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
+                  currentView === "video"
+                    ? "bg-black/10 border-2 border-stone-800 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-bold"
+                    : "text-stone-800 hover:bg-black/5 hover:text-black hover:pl-5"
+                }`}
+              >
+                4k Video Player
+              </button>
+
+              {/* My videos */}
+              <button
+                onClick={() => {
+                  if (isLoggedIn) {
+                    setCurrentView("myvideos");
+                  } else {
+                    setCurrentView("auth");
+                  }
+                  setIsOpen(false);
+                }}
+                className={`w-full text-left font-sans font-semibold uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
+                  currentView === "myvideos"
+                    ? "bg-black/10 border-2 border-stone-800 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-bold"
+                    : "text-stone-800 hover:bg-black/5 hover:text-black hover:pl-5"
+                }`}
+              >
+                My videos
+              </button>
+
+              {/* AI Video Enhancement and Optimization Option */}
+              <button
+                onClick={() => {
+                  if (isLoggedIn) {
+                    setCurrentView("ai_enhancement_video");
+                  } else {
+                    setCurrentView("auth");
+                  }
+                  setIsOpen(false);
+                }}
+                className={`w-full text-left font-sans font-semibold uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
+                  currentView === "ai_enhancement_video"
+                    ? "bg-black/10 border-2 border-stone-800 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-bold"
+                    : "text-stone-800 hover:bg-black/5 hover:text-black hover:pl-5"
+                }`}
+              >
+                Ai video enhancement and optimizer
+              </button>
+
+              {/* Upgrade */}
               <button
                 onClick={() => {
                   if (isLoggedIn) {
@@ -2009,34 +2280,16 @@ export default function App() {
                   }
                   setIsOpen(false);
                 }}
-                className={`w-full text-left font-sans font-medium uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-3.5 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
+                className={`w-full text-left font-sans font-semibold uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
                   currentView === "upgrade"
-                    ? "bg-white/10 border-2 border-slate-350 text-white shadow-[0_0_12px_rgba(255,255,255,0.25)] font-semibold"
-                    : "text-slate-200 hover:bg-slate-900/65 hover:text-white hover:pl-5"
+                    ? "bg-black/10 border-2 border-stone-800 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-bold"
+                    : "text-stone-800 hover:bg-black/5 hover:text-black hover:pl-5"
                 }`}
               >
                 Upgrade
               </button>
 
-              <button
-                onClick={() => {
-                  if (isLoggedIn) {
-                    setCurrentView("ai_enhancement");
-                  } else {
-                    setCurrentView("auth");
-                  }
-                  setIsOpen(false);
-                }}
-                className={`w-full text-left font-sans font-medium uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-3.5 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
-                  currentView === "ai_enhancement"
-                    ? "bg-white/10 border-2 border-slate-350 text-white shadow-[0_0_12px_rgba(255,255,255,0.25)] font-semibold"
-                    : "text-slate-200 hover:bg-slate-900/65 hover:text-white hover:pl-5"
-                }`}
-              >
-                Ai Enhancement and optimization
-              </button>
-
-              <div className="border-t border-[#1f3050]/60 my-2 mx-1" />
+              <div className="border-t border-black/10 my-1 mx-1" />
               
               <button
                 onClick={async () => {
@@ -2050,7 +2303,7 @@ export default function App() {
                   setIsOpen(false);
                   setCurrentView("landing");
                 }}
-                className="w-full text-left font-sans font-medium uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-3.5 rounded-xl transition-all duration-100 text-red-400 hover:bg-red-500/10 border border-transparent cursor-pointer hover:pl-5"
+                className="w-full text-left font-sans font-semibold uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-2 rounded-xl transition-all duration-100 text-red-700 hover:bg-red-500/10 border border-transparent cursor-pointer hover:pl-5 font-bold"
               >
                 Log Out
               </button>
@@ -2143,6 +2396,50 @@ export default function App() {
         <img src="/logo.png" alt="" referrerPolicy="no-referrer" className="w-5 h-5 rounded object-cover shadow-[0_0_6px_rgba(255,255,255,0.2)]" />
         <span className="text-base font-sans font-semibold tracking-[0.25em] text-white select-none block drop-shadow-[0_0_12px_rgba(255,255,255,0.4)]">QUANTUMPLAYERAI</span>
       </div>
+
+      {quotaError && (
+        <div className="w-full max-w-xl mx-auto px-4 mt-2 mb-4 relative z-50 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-4 shadow-lg text-left relative overflow-hidden backdrop-blur-md">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-red-500/20 text-red-400 rounded-xl border border-red-500/30 shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h4 className="text-xs font-sans font-bold text-red-400 uppercase tracking-wider">
+                  Firestore Quota Exceeded (Daily Limit Reached)
+                </h4>
+                <p className="text-[11px] text-slate-300 font-light mt-1 leading-relaxed">
+                  Your Firestore database has exceeded its daily free-tier usage quota. This quota resets daily. In the meantime, the application is automatically falling back to fully functional local storage (IndexedDB) so you can continue playing and customizing your tracks without interruption.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <a
+                    href="https://console.firebase.google.com/project/eliteplayerai/firestore/databases/ai-studio-121a998e-f48a-4fe6-99da-b27a251b5324/data?openUpgradeDialog=true"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg text-[10px] font-sans font-bold uppercase tracking-wider border border-red-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    Open Firebase Console
+                  </a>
+                  <a
+                    href="https://firebase.google.com/pricing#cloud-firestore"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-[10px] font-sans font-bold uppercase tracking-wider border border-white/5 transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    Firestore Pricing & Quotas
+                  </a>
+                  <button
+                    onClick={() => setQuotaError(null)}
+                    className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg text-[10px] font-sans font-bold uppercase tracking-wider border border-white/5 transition-all cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {authLoading ? (
         <div id="auth-loading-screen" className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col justify-center items-center min-h-screen relative z-30">
           <div className="text-center p-8 bg-stone-950/95 border-2 border-white/40 rounded-[2rem] shadow-[0_0_50px_rgba(255,255,255,0.18)] max-w-sm w-full mx-auto select-none backdrop-blur-md">
@@ -2281,7 +2578,7 @@ export default function App() {
           </footer>         
         </div>       
       )}       
-          {(currentView === "player" || currentView === "mymusic" || currentView === "upgrade" || currentView === "ai_enhancement" || currentView === "video") && (         
+          {(currentView === "player" || currentView === "mymusic" || currentView === "myvideos" || currentView === "upgrade" || currentView === "ai_enhancement" || currentView === "ai_enhancement_audio" || currentView === "ai_enhancement_video" || currentView === "video") && (         
         <>           
           <main id="main-workbench" className="flex-1 w-full mx-auto px-4 py-6 flex flex-col gap-6 items-stretch max-w-xl">                          
             {currentView === "player" && (
@@ -2320,23 +2617,10 @@ export default function App() {
                     gains={dspSettings.eqBands}                 
                     onChange={handleEqValueChange}                 
                     onReset={resetAllFlat}                 
-                    presets={[
-                      ...BUILTIN_PRESETS,
-                      {
-                        name: "Custom",
-                        eqBands: customEqBands || [0, 0, 0, 0, 0],
-                        bassBoost: dspSettings.bassBoost,
-                        reverbWet: dspSettings.reverbWet,
-                        delayOffsetMs: dspSettings.delayOffsetMs,
-                        isPremium: false
-                      }
-                    ]}                 
+                    presets={BUILTIN_PRESETS}                 
                     selectedPresetName={selectedPresetName}                 
                     onPresetSelect={applyAudioPreset}               
                     isPremiumActive={subscriptionTier === "paid"}
-                    customEqBands={customEqBands}
-                    onSaveCustom={handleSaveCustomPreset}
-                    onResetCustom={handleResetCustomPreset}
                   />             
                 </section>             
               </>
@@ -2353,11 +2637,32 @@ export default function App() {
                 uploadError={uploadError}
                 uploadSuccess={uploadSuccess}
                 handleFileUpload={handleFileUpload}
-                handleCloudFileUpload={handleCloudFileUpload}
                 deleteSelectedTracks={deleteSelectedTracks}
                 onPlayTrackById={onPlayTrackById}
                 setUploadError={setUploadError}
                 setUploadSuccess={setUploadSuccess}
+                refreshLocalMedia={refreshLocalMedia}
+              />
+            )}
+
+            {currentView === "myvideos" && (
+              <MyVideosView
+                videos={firestoreVideos}
+                selectedVideo={selectedVideo}
+                currentUser={currentUser}
+                isUploading={isUploading}
+                uploadProgress={uploadProgress}
+                uploadError={uploadError}
+                uploadSuccess={uploadSuccess}
+                handleFileUpload={handleFileUpload}
+                deleteSelectedVideos={deleteSelectedVideos}
+                onPlayVideo={(video) => {
+                  setSelectedVideo(video);
+                  setCurrentView("video");
+                }}
+                setUploadError={setUploadError}
+                setUploadSuccess={setUploadSuccess}
+                refreshLocalMedia={refreshLocalMedia}
               />
             )}
 
@@ -2373,7 +2678,7 @@ export default function App() {
               />
             )}
 
-            {currentView === "ai_enhancement" && (
+            {currentView === "ai_enhancement_audio" && (
               <AiEnhancementView
                 vehicleInfo={vehicleInfo}
                 setVehicleInfo={setVehicleInfo}
@@ -2384,6 +2689,30 @@ export default function App() {
                 onBackToPlayer={() => {
                   setCurrentView("player");
                 }}
+              />
+            )}
+
+            {currentView === "ai_enhancement_video" && (
+              <AiVideoEnhancementView
+                subscriptionTier={subscriptionTier}
+                onBackToPlayer={() => {
+                  setCurrentView("video");
+                }}
+                firestoreVideos={firestoreVideos}
+                selectedVideo={selectedVideo}
+                setSelectedVideo={setSelectedVideo}
+                activeModel={activeModel}
+                setActiveModel={setActiveModel}
+                upscaleTarget={upscaleTarget}
+                setUpscaleTarget={setUpscaleTarget}
+                colorEnhancement={colorEnhancement}
+                setColorEnhancement={setColorEnhancement}
+                smoothMotion={smoothMotion}
+                setSmoothMotion={setSmoothMotion}
+                turboMode={turboMode}
+                setTurboMode={setTurboMode}
+                aiOptimizedFilters={aiOptimizedFilters}
+                setAiOptimizedFilters={setAiOptimizedFilters}
               />
             )}
 
@@ -2401,6 +2730,21 @@ export default function App() {
                 uploadError={uploadError}
                 uploadSuccess={uploadSuccess}
                 onUploadVideos={handleFileUpload}
+                onRefreshVideos={refreshLocalMedia}
+                selectedVideo={selectedVideo}
+                setSelectedVideo={setSelectedVideo}
+                activeModel={activeModel}
+                setActiveModel={setActiveModel}
+                upscaleTarget={upscaleTarget}
+                setUpscaleTarget={setUpscaleTarget}
+                colorEnhancement={colorEnhancement}
+                setColorEnhancement={setColorEnhancement}
+                smoothMotion={smoothMotion}
+                setSmoothMotion={setSmoothMotion}
+                turboMode={turboMode}
+                setTurboMode={setTurboMode}
+                aiOptimizedFilters={aiOptimizedFilters}
+                setAiOptimizedFilters={setAiOptimizedFilters}
               />
             )}
           </main>         

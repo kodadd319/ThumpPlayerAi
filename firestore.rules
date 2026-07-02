@@ -69,8 +69,8 @@ service cloud.firestore {
           && (!('album' in data) || (data.album is string && data.album.size() <= 256))
           && (!('genre' in data) || (data.genre is string && data.genre.size() <= 128))
           && (!('duration' in data) || (data.duration is number))
-          && (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 2048))
-          && (!('albumArtUrl' in data) || (data.albumArtUrl == null || (data.albumArtUrl is string && data.albumArtUrl.size() <= 2048)))
+          && (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 1048576))
+          && (!('albumArtUrl' in data) || (data.albumArtUrl == null || (data.albumArtUrl is string && data.albumArtUrl.size() <= 1048576)))
           && (!('storagePath' in data) || (data.storagePath is string && data.storagePath.size() <= 512))
           && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64));
     }
@@ -87,7 +87,7 @@ service cloud.firestore {
           && (!('duration' in data) || (data.duration is string && data.duration.size() <= 32))
           && (!('creator' in data) || (data.creator is string && data.creator.size() <= 128))
           && (!('category' in data) || (data.category is string && data.category.size() <= 128))
-          && (!('thumbnail' in data) || (data.thumbnail is string && data.thumbnail.size() <= 2048))
+          && (!('thumbnail' in data) || (data.thumbnail is string && data.thumbnail.size() <= 1048576))
           && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64));
     }
 
@@ -118,6 +118,15 @@ service cloud.firestore {
                     && resource.data.uid == request.auth.uid 
                     && request.resource.data.uid == request.auth.uid 
                     && isValidVideo(request.resource.data);
+      allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    match /file_chunks/{chunkId} {
+      allow list, get: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow update: if isSignedIn() 
+                    && resource.data.uid == request.auth.uid 
+                    && request.resource.data.uid == request.auth.uid;
       allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
     }
   }

@@ -5,20 +5,135 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 
+import { initializeApp, getApps } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
+import Stripe from "stripe";
+
 dotenv.config();
+
+// Initialize Firebase Admin
+try {
+  if (getApps().length === 0) {
+    initializeApp({
+      projectId: "eliteplayerai"
+    });
+    console.log("Firebase Admin initialized successfully.");
+  }
+} catch (err) {
+  console.error("Firebase Admin initialization failed:", err);
+}
+
+// Helper to get active Firestore instance with correct databaseId
+function getAdminDb() {
+  if (getApps().length === 0) return null;
+  return getFirestore(undefined, "ai-studio-121a998e-f48a-4fe6-99da-b27a251b5324");
+}
+
+// Helper to get active Auth instance
+function getAdminAuth() {
+  if (getApps().length === 0) return null;
+  return getAuth();
+}
+
+// User Premium Validation Helpers
+function isUserPremium(userData: any): boolean {
+  if (!userData) return false;
+  
+  // High-priority developer/tester bypass
+  if (userData.email === "jkoehler319@gmail.com") return true;
+  
+  if (userData.subscriptionTier !== "paid") return false;
+
+  if (userData.premiumType === "lifetime") {
+    return true; // Lifetime never expires
+  }
+
+  if (userData.premiumType === "subscription") {
+    if (!userData.premiumExpiresAt) {
+      return true; // fallback if subscriptionTier is paid but expiry hasn't sync'd yet
+    }
+    const expiresAt = new Date(userData.premiumExpiresAt);
+    return expiresAt.getTime() > Date.now();
+  }
+
+  return true; // default fallback if subscriptionTier is explicitly "paid"
+}
+
+// Abstract Gatekeeping Definition to easily add more paid features
+const GATED_FEATURES = {
+  AI_AUDIO_OPTIMIZATION: "AI_AUDIO_OPTIMIZATION",
+  AI_VIDEO_OPTIMIZATION: "AI_VIDEO_OPTIMIZATION"
+};
+
+function hasAccessToFeature(userData: any, featureName: keyof typeof GATED_FEATURES): boolean {
+  // Currently, all premium features require isUserPremium to be true
+  return isUserPremium(userData);
+}
+
+async function getPremiumStatus(req: express.Request, featureName: keyof typeof GATED_FEATURES): Promise<boolean> {
+  if (getApps().length === 0) {
+    // If Admin SDK is not active, allow access by default for safety in local runs
+    return true;
+  }
+  
+  let uid: string | null = null;
+
+  // 1. Check Bearer Authorization token first
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.split("Bearer ")[1];
+    const auth = getAdminAuth();
+    if (auth) {
+      try {
+        const decodedToken = await auth.verifyIdToken(token);
+        uid = decodedToken.uid;
+      } catch (err) {
+        console.warn("Bearer token verification failed in backend:", err);
+      }
+    }
+  }
+
+  // 2. Fallback to header or body UID
+  if (!uid) {
+    uid = (req.headers["x-user-uid"] as string) || req.body.uid || null;
+  }
+
+  if (!uid) {
+    console.warn("No user identity found in request for feature gatekeeping:", featureName);
+    return false;
+  }
+
+  try {
+    const db = getAdminDb();
+    if (!db) return false;
+    const userDoc = await db.collection("users").doc(uid).get();
+    if (!userDoc.exists) {
+      return false;
+    }
+    const userData = userDoc.data();
+    return hasAccessToFeature(userData, featureName);
+  } catch (error) {
+    console.error(`Error validating feature ${featureName} access in backend:`, error);
+    return false;
+  }
+}
 
 // Lazy load Gemini to prevent crashes if key is initially absent
 let aiClient: GoogleGenAI | null = null;
+function hasGeminiApiKey(): boolean {
+  const key = process.env.GEMINI_API_KEY;
+  return !!key && key !== "undefined" && key !== "null" && key.trim() !== "";
+}
+
 function getAiClient(): GoogleGenAI {
   if (!aiClient) {
     const key = process.env.GEMINI_API_KEY;
-    if (!key) {
-      // Create client anyway but let's warn. Oh, GoogleGenAI throws if key is empty?
-      // No, we can pass whatever or handle it.
+    if (!hasGeminiApiKey()) {
       console.warn("GEMINI_API_KEY is not defined. AI customization will fallback to local calculations.");
     }
     aiClient = new GoogleGenAI({
-      apiKey: key || "PLACEHOLDER_KEY",
+      apiKey: hasGeminiApiKey() ? key : "PLACEHOLDER_KEY",
       httpOptions: {
         headers: {
           "User-Agent": "aistudio-build",
@@ -32,11 +147,165 @@ function getAiClient(): GoogleGenAI {
 const app = express();
 const PORT = 3000;
 
+// Stripe Webhook Endpoint (mounted before express.json() to maintain raw body verification)
+app.post("/webhook/stripe", express.raw({ type: "application/json" }), async (req, res) => {
+  const sig = req.headers["stripe-signature"];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  let event;
+  try {
+    if (endpointSecret && sig) {
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "dummy_key", { apiVersion: "2025-01-27.acacia" as any });
+      event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+    } else {
+      console.warn("STRIPE_WEBHOOK_SECRET or stripe-signature is missing. Handling unverified Stripe webhook payload for testing.");
+      event = JSON.parse(req.body.toString());
+    }
+  } catch (err: any) {
+    console.error("Stripe Webhook Signature Verification Failed:", err.message);
+    return res.status(400).send(`Webhook signature verification failed: ${err.message}`);
+  }
+
+  if (getApps().length === 0) {
+    console.error("Firebase Admin is not initialized. Cannot update user premium state.");
+    return res.status(500).send("Database not configured");
+  }
+
+  const db = getAdminDb();
+  if (!db) {
+    console.error("Firestore database connection could not be retrieved.");
+    return res.status(500).send("Database connection error");
+  }
+
+  try {
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object as any;
+        const uid = session.client_reference_id;
+        if (!uid) {
+          console.warn("Stripe Checkout completed, but client_reference_id (uid) was not present.");
+          break;
+        }
+
+        const isSubscription = session.mode === "subscription";
+        const stripeSubscriptionId = session.subscription || null;
+        const stripeCustomerId = session.customer || null;
+        
+        let expiresAtStr: string | null = null;
+        if (isSubscription) {
+          // Calculate safe expiry date (e.g. 32 days from now to give buffer on renewal)
+          const d = new Date();
+          d.setDate(d.getDate() + 32);
+          expiresAtStr = d.toISOString();
+        }
+
+        const userRef = db.collection("users").doc(uid);
+        await userRef.set({
+          subscriptionTier: "paid",
+          premiumType: isSubscription ? "subscription" : "lifetime",
+          stripeSubscriptionId,
+          stripeCustomerId,
+          premiumExpiresAt: expiresAtStr,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+
+        console.log(`Webhook updated user ${uid}: premium unlocked! (${isSubscription ? "Subscription" : "Lifetime"})`);
+        break;
+      }
+
+      case "invoice.payment_succeeded": {
+        const invoice = event.data.object as any;
+        const subscriptionId = invoice.subscription;
+        
+        if (subscriptionId) {
+          const usersSnap = await db.collection("users").where("stripeSubscriptionId", "==", subscriptionId).get();
+          if (!usersSnap.empty) {
+            for (const doc of usersSnap.docs) {
+              const d = new Date();
+              const hasYearly = invoice.lines?.data?.some((line: any) => line.plan?.interval === "year");
+              d.setDate(d.getDate() + (hasYearly ? 366 : 32));
+              
+              await doc.ref.set({
+                subscriptionTier: "paid",
+                premiumType: "subscription",
+                premiumExpiresAt: d.toISOString(),
+                updatedAt: new Date().toISOString()
+              }, { merge: true });
+              console.log(`Webhook: Extended subscription for user ${doc.id} to ${d.toISOString()}`);
+            }
+          } else {
+            console.warn(`Webhook received invoice payment success for unmapped subscription ID ${subscriptionId}`);
+          }
+        }
+        break;
+      }
+
+      case "customer.subscription.deleted": {
+        const sub = event.data.object as any;
+        const subscriptionId = sub.id;
+        
+        const usersSnap = await db.collection("users").where("stripeSubscriptionId", "==", subscriptionId).get();
+        if (!usersSnap.empty) {
+          for (const doc of usersSnap.docs) {
+            await doc.ref.set({
+              subscriptionTier: "free",
+              premiumType: "none",
+              premiumExpiresAt: null,
+              updatedAt: new Date().toISOString()
+            }, { merge: true });
+            console.log(`Webhook: Locked premium access for user ${doc.id} due to subscription cancel/deletion.`);
+          }
+        }
+        break;
+      }
+
+      case "invoice.payment_failed": {
+        const invoice = event.data.object as any;
+        const subscriptionId = invoice.subscription;
+        
+        if (subscriptionId) {
+          const usersSnap = await db.collection("users").where("stripeSubscriptionId", "==", subscriptionId).get();
+          if (!usersSnap.empty) {
+            for (const doc of usersSnap.docs) {
+              await doc.ref.set({
+                subscriptionTier: "free",
+                premiumType: "none",
+                premiumExpiresAt: null,
+                updatedAt: new Date().toISOString()
+              }, { merge: true });
+              console.log(`Webhook: Locked premium access for user ${doc.id} due to payment failure.`);
+            }
+          }
+        }
+        break;
+      }
+
+      default:
+        console.log(`Unhandled Stripe event: ${event.type}`);
+    }
+  } catch (error) {
+    console.error("Error processing database update inside webhook route:", error);
+    return res.status(500).send("Internal server error during database synchronization");
+  }
+
+  res.json({ received: true });
+});
+
 app.use(express.json());
 
 // API route for AI-based Audio Optimization
 app.post("/api/optimize", async (req, res) => {
   try {
+    // Gatekeep this feature so it is strictly locked unless "active_premium" is true
+    const isPremium = await getPremiumStatus(req, "AI_AUDIO_OPTIMIZATION");
+    if (!isPremium) {
+      return res.status(403).json({
+        error: "Premium subscription required",
+        code: "PREMIUM_REQUIRED",
+        message: "Unlock all AI Audio Enhancement features by upgrading to Premium."
+      });
+    }
+
     const { 
       songTitle, 
       genre, 
@@ -49,7 +318,7 @@ app.post("/api/optimize", async (req, res) => {
       subwooferConfig 
     } = req.body;
 
-    if (!process.env.GEMINI_API_KEY) {
+    if (!hasGeminiApiKey()) {
       // Elegant fallback when API key is missing
       if (easyMode && carYearMakeModel) {
         const carLower = carYearMakeModel.toLowerCase();
@@ -175,7 +444,14 @@ Ready, set, drop!
       }
     });
 
-    const dspConfig = JSON.parse(response.text || "{}");
+    let jsonText = response.text || "{}";
+    if (jsonText.includes("```")) {
+      const match = jsonText.match(/```(?:json)?([\s\S]*?)```/);
+      if (match && match[1]) {
+        jsonText = match[1].trim();
+      }
+    }
+    const dspConfig = JSON.parse(jsonText);
     // Sanity bounding of values
     if (Array.isArray(dspConfig.eqBands) && dspConfig.eqBands.length === 5) {
       dspConfig.eqBands = dspConfig.eqBands.map((v: number) => Math.max(-12, Math.min(12, v)));
@@ -201,6 +477,16 @@ Ready, set, drop!
 // API route for AI-based Video Optimization and Enhancement
 app.post("/api/optimize-video", async (req, res) => {
   try {
+    // Gatekeep this feature so it is strictly locked unless "active_premium" is true
+    const isPremium = await getPremiumStatus(req, "AI_VIDEO_OPTIMIZATION");
+    if (!isPremium) {
+      return res.status(403).json({
+        error: "Premium subscription required",
+        code: "PREMIUM_REQUIRED",
+        message: "Unlock all AI Video Enhancement features by upgrading to Premium."
+      });
+    }
+
     const { 
       videoName, 
       category, 
@@ -211,7 +497,7 @@ app.post("/api/optimize-video", async (req, res) => {
       turboMode 
     } = req.body;
 
-    if (!process.env.GEMINI_API_KEY) {
+    if (!hasGeminiApiKey()) {
       // Elegant fallback when API key is missing
       const baseModel = activeModel || "quantum-scale";
       const baseColor = colorEnhancement || "hdr";
@@ -294,28 +580,88 @@ Provide the response in JSON format matching this schema:
 - justification: (string, the luxurious description of the visual enhancement applied by the AI)
 `;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            brightness: { type: Type.NUMBER, description: "Brightness scale factor (0.8 to 1.5)" },
-            contrast: { type: Type.NUMBER, description: "Contrast scale factor (0.9 to 1.6)" },
-            saturation: { type: Type.NUMBER, description: "Saturation scale factor (0.8 to 1.8)" },
-            sharpness: { type: Type.NUMBER, description: "Sharpness level (0 to 100)" },
-            hueRotate: { type: Type.NUMBER, description: "Hue rotation in degrees (-20 to 20)" },
-            sepia: { type: Type.NUMBER, description: "Sepia overlay amount (0.0 to 0.5)" },
-            justification: { type: Type.STRING, description: "A luxurious description of the AI calibration results" }
-          },
-          required: ["brightness", "contrast", "saturation", "sharpness", "hueRotate", "sepia", "justification"]
+    let config;
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              brightness: { type: Type.NUMBER, description: "Brightness scale factor (0.8 to 1.5)" },
+              contrast: { type: Type.NUMBER, description: "Contrast scale factor (0.9 to 1.6)" },
+              saturation: { type: Type.NUMBER, description: "Saturation scale factor (0.8 to 1.8)" },
+              sharpness: { type: Type.NUMBER, description: "Sharpness level (0 to 100)" },
+              hueRotate: { type: Type.NUMBER, description: "Hue rotation in degrees (-20 to 20)" },
+              sepia: { type: Type.NUMBER, description: "Sepia overlay amount (0.0 to 0.5)" },
+              justification: { type: Type.STRING, description: "A luxurious description of the AI calibration results" }
+            },
+            required: ["brightness", "contrast", "saturation", "sharpness", "hueRotate", "sepia", "justification"]
+          }
+        }
+      });
+
+      let jsonText = response.text || "{}";
+      if (jsonText.includes("```")) {
+        const match = jsonText.match(/```(?:json)?([\s\S]*?)```/);
+        if (match && match[1]) {
+          jsonText = match[1].trim();
         }
       }
-    });
+      config = JSON.parse(jsonText);
+    } catch (aiError: any) {
+      console.warn("Gemini video optimization API call failed, falling back to local calculations:", aiError);
+      
+      const baseModel = activeModel || "quantum-scale";
+      const baseColor = colorEnhancement || "hdr";
+      
+      let brightness = 1.05;
+      let contrast = 1.15;
+      let saturation = 1.20;
+      let sharpness = 20;
+      let hueRotate = 0;
+      let sepia = 0;
 
-    const config = JSON.parse(response.text || "{}");
+      if (baseColor === "hdr") {
+        brightness = 1.10;
+        contrast = 1.25;
+        saturation = 1.30;
+        sharpness = 30;
+      } else if (baseColor === "vivid") {
+        brightness = 1.05;
+        contrast = 1.30;
+        saturation = 1.55;
+        sharpness = 25;
+      } else if (baseColor === "lowlight") {
+        brightness = 1.28;
+        contrast = 1.10;
+        saturation = 0.95;
+        sharpness = 15;
+      } else if (baseColor === "crisp") {
+        brightness = 0.98;
+        contrast = 1.15;
+        saturation = 1.05;
+        sharpness = 45;
+      }
+
+      if (turboMode) {
+        brightness += 0.05;
+        contrast += 0.08;
+      }
+
+      config = {
+        isFallback: true,
+        brightness,
+        contrast,
+        saturation,
+        sharpness,
+        hueRotate,
+        sepia,
+        justification: `✨ Local Quantum AI Frame Analyzer: Optimizing visual parameters for "${videoName || "Custom Loop"}". Our local DSP pipeline has calibrated the video's pixels! By matching the ${baseModel} reconstruction matrix against your ${baseColor.toUpperCase()} profile, we expanded local contrast ratios to ${Math.round(contrast * 100)}% and fine-tuned saturation to ${Math.round(saturation * 100)}% to match standard dashboard displays. Enjoy premium crystal-clear clarity!`
+      };
+    }
     
     // Bounds checking
     config.brightness = Math.max(0.8, Math.min(1.5, config.brightness || 1.0));
@@ -371,8 +717,32 @@ async function bootstrapServer() {
     });
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    
+    // Serve static files with custom headers to prevent HTML caching while allowing assets caching
+    app.use(express.static(distPath, {
+      etag: true,
+      lastModified: true,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith(".html")) {
+          // Prevent any caching of HTML entry files so changes load instantly
+          res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
+          res.set("Pragma", "no-cache");
+          res.set("Expires", "0");
+        } else if (filePath.match(/\.(js|css|woff2?|eot|ttf|otf)$/)) {
+          // Fingerprinted assets (Vite generates unique names for built js/css) can be safely cached
+          res.set("Cache-Control", "public, max-age=31536000, immutable");
+        } else {
+          // Other media/images get revalidation
+          res.set("Cache-Control", "no-cache, must-revalidate");
+        }
+      }
+    }));
+
     app.get("*", (req, res) => {
+      // Force no-cache for index.html SPA router fallback
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
+      res.set("Pragma", "no-cache");
+      res.set("Expires", "0");
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

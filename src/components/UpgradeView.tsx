@@ -8,7 +8,8 @@ import {
   Volume2,
   Lock,
   Music,
-  ArrowRight
+  ArrowRight,
+  ExternalLink
 } from "lucide-react";
 import { motion } from "motion/react";
 import { auth } from "../firebase";
@@ -26,6 +27,33 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
   onChangeSubscriptionTier,
   globalPremiumPrompt
 }) => {
+
+  const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+
+  const currentUser = auth.currentUser;
+  const uid = currentUser?.uid;
+
+  // Build Stripe Links dynamically with client_reference_id containing the UID
+  const monthlyLink = uid 
+    ? `https://buy.stripe.com/8x200b5cT2Ye7jR6dU73G08?client_reference_id=${uid}` 
+    : "https://buy.stripe.com/8x200b5cT2Ye7jR6dU73G08";
+
+  const annualLink = uid 
+    ? `https://buy.stripe.com/8x2dR17l1aqGfQn9q673G09?client_reference_id=${uid}` 
+    : "https://buy.stripe.com/8x2dR17l1aqGfQn9q673G09";
+
+  const lifetimeLink = uid 
+    ? `https://buy.stripe.com/7sY4grbBhfL01Zx6dU73G0a?client_reference_id=${uid}` 
+    : "https://buy.stripe.com/7sY4grbBhfL01Zx6dU73G0a";
+
+  const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!uid) {
+      e.preventDefault();
+      setErrorMessage("Please sign in or create an account first. An account is required so we can credit your premium membership to your profile.");
+      // Scroll to error message for visibility
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
 
   const handleUpgrade = () => {
     // Simulate upgrading the tier to paid so the user gets real-time access
@@ -64,7 +92,7 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
       </div>
 
       {/* Administrator Status Indicator */}
-      {auth.currentUser?.email === "jkoehler319@gmail.com" && (
+      {auth.currentUser?.email && ["jkoehler319@gmail.com", "jtothek319@gmail.com"].includes(auth.currentUser.email) && (
         <motion.div 
           initial={{ scale: 0.95, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -105,6 +133,27 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
         </motion.div>
       )}
 
+      {/* Auth Requirement Error Warning Banner */}
+      {errorMessage && (
+        <motion.div 
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="p-4 rounded-2xl bg-red-500/10 border-2 border-red-500/30 text-red-200 flex items-start gap-4 shadow-[0_4px_20px_rgba(239,68,68,0.15)]"
+        >
+          <div className="w-8 h-8 rounded-lg bg-red-950/35 border border-red-500/45 flex items-center justify-center shrink-0">
+            <Lock className="w-4 h-4 text-red-400 animate-pulse" />
+          </div>
+          <div className="flex flex-col gap-0.5 flex-1">
+            <h4 className="font-sans text-[10px] font-semibold uppercase tracking-wider text-red-400">
+              Sign In Required
+            </h4>
+            <p className="font-sans text-[11px] text-stone-300 leading-relaxed font-semibold">
+              {errorMessage}
+            </p>
+          </div>
+        </motion.div>
+      )}
+
       {/* Main Upgrade Card */}
       <div className="relative rounded-3xl bg-[#0a0504]/90 border-2 border-slate-350 p-6 md:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.85)] overflow-hidden">
         {/* Decorative ambient backdrop glow */}
@@ -140,10 +189,10 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
               </div>
               <div>
                 <h4 className="text-[11px] font-sans font-semibold uppercase tracking-wide text-white">
-                  AI Sound Quality Enhancement
+                  Ai enhancement settings for audio files
                 </h4>
                 <p className="text-[10px] font-sans text-stone-400 mt-1 leading-relaxed">
-                  Cleans and remasters your audio files for high-fidelity studio clarity.
+                  Remaster vocal registers, enhance bass levels, and control high frequency ranges for perfect acoustic fidelity.
                 </p>
               </div>
             </div>
@@ -155,10 +204,10 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
               </div>
               <div>
                 <h4 className="text-[11px] font-sans font-semibold uppercase tracking-wide text-white">
-                  AI Vehicle Acoustic Calibrator
+                  Ai optimazation settings for Audio Player
                 </h4>
                 <p className="text-[10px] font-sans text-stone-400 mt-1 leading-relaxed">
-                  Calibrates audio frequencies perfectly for your vehicle's unique cabin size.
+                  Real-time spatial calibration, soundstage modeling, and dynamic response optimizations for the player engine.
                 </p>
               </div>
             </div>
@@ -170,10 +219,10 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
               </div>
               <div>
                 <h4 className="text-[11px] font-sans font-semibold uppercase tracking-wide text-white">
-                  3 Premium EQ Presets
+                  Ai enhancement settings for video Files
                 </h4>
                 <p className="text-[10px] font-sans text-stone-400 mt-1 leading-relaxed">
-                  Unlocks three new custom presets for the 5-band equalizer.
+                  Upscale detail, balance contrast, and optimize visual dynamics of your uploaded video formats in real-time.
                 </p>
               </div>
             </div>
@@ -185,10 +234,10 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
               </div>
               <div>
                 <h4 className="text-[11px] font-sans font-semibold uppercase tracking-wide text-white">
-                  Unlimited Track Uploads
+                  Ai optimazation settings for Video Player
                 </h4>
                 <p className="text-[10px] font-sans text-stone-400 mt-1 leading-relaxed">
-                  Upload as many songs as you want without restrictions.
+                  Align acoustic synchronization, optimize bitrates, and apply high-contrast cinema filters for your display setup.
                 </p>
               </div>
             </div>
@@ -196,7 +245,7 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
         </div>
 
         {/* Pricing Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8 pt-4 border-t border-stone-850">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-8 pt-4 border-t border-stone-850">
           
           {/* Monthly Subscription */}
           <div className="p-5 rounded-2xl bg-stone-950/45 border border-stone-850 flex flex-col justify-between relative group hover:border-white transition-all">
@@ -207,72 +256,127 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
               <h4 className="text-xs font-sans font-semibold text-white uppercase tracking-wider mb-1">
                 Monthly Subscription
               </h4>
-              <div className="flex flex-col gap-1.5 my-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-sans text-stone-550 uppercase tracking-wide">Regular Price:</span>
-                  <span className="text-sm font-sans line-through text-stone-500 font-medium">$20.00/mo</span>
-                </div>
-                <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col gap-0.5">
-                  <span className="text-[9px] font-sans uppercase font-bold text-emerald-400 tracking-wider">Limited Time Special</span>
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-2xl font-sans font-black text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.2)]">$10.00</span>
-                    <span className="text-[10px] font-sans text-stone-300">first month</span>
-                  </div>
+              <div className="flex flex-col gap-1 my-4">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-3xl font-sans font-black text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.2)]">$9.99</span>
+                  <span className="text-[10px] font-sans text-stone-400 uppercase tracking-wider font-semibold">/ month</span>
                 </div>
               </div>
-              <p className="text-[9px] font-sans text-stone-500 uppercase tracking-wider mb-5 font-light">
-                Rebills at regular price of $20.00/mo thereafter. Cancel anytime.
+              <p className="text-[9px] font-sans text-stone-500 uppercase tracking-wider mb-5 font-light leading-relaxed">
+                Full unlimited premium tools. Cancel anytime in your user profile.
               </p>
             </div>
-            <button
-              onClick={handleUpgrade}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-stone-850 to-stone-950 border border-stone-750 hover:border-white text-white hover:bg-white/5 font-sans text-[10px] font-semibold tracking-widest uppercase cursor-pointer transition-all active:scale-[98.5%] shadow-lg flex items-center justify-center gap-1.5"
+            <a
+              href={monthlyLink}
+              onClick={handleLinkClick}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-stone-850 to-stone-950 border border-stone-750 hover:border-white text-white hover:bg-white/5 font-sans text-[10px] font-semibold tracking-widest uppercase cursor-pointer transition-all active:scale-[98.5%] shadow-lg flex items-center justify-center gap-1.5 text-center no-underline hover:text-white"
             >
-              <span>Activate $10.00 Trial</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+              <span>Subscribe Monthly</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
           </div>
 
           {/* Annual Subscription */}
-          <div className="p-5 rounded-2xl bg-gradient-to-b from-[#1a110f] to-[#0a0504] border-2 border-slate-350 flex flex-col justify-between relative group hover:border-white transition-all shadow-[0_5px_15px_rgba(255,255,255,0.06)]">
-            <div className="absolute top-3 right-3 bg-white text-[6.5px] font-sans text-black font-semibold uppercase px-2 py-0.5 rounded tracking-wider shadow">
-              SAVE EXTRA
+          <div className="p-5 rounded-2xl bg-gradient-to-b from-[#1a110f] to-[#0a0504] border border-stone-850 flex flex-col justify-between relative group hover:border-white transition-all">
+            <div className="absolute top-3 right-3 bg-stone-900 text-[6.5px] font-sans text-emerald-400 font-bold uppercase px-2 py-0.5 rounded tracking-wider border border-emerald-500/20 shadow">
+              SAVE OVER 37%
             </div>
             <div>
-              <span className="text-[8px] font-sans font-semibold text-white uppercase tracking-widest block mb-1">
+              <span className="text-[8px] font-sans font-semibold text-slate-200 uppercase tracking-widest block mb-1">
                 Value Saver Plan
               </span>
               <h4 className="text-xs font-sans font-semibold text-white uppercase tracking-wider mb-1">
                 Annual Subscription
               </h4>
-              <div className="flex flex-col gap-1.5 my-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-sans text-stone-400 uppercase tracking-wide">Regular Price:</span>
-                  <span className="text-sm font-sans line-through text-stone-400/60 font-medium">$100.00/yr</span>
+              <div className="flex flex-col gap-1 my-4">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-3xl font-sans font-black text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.2)]">$74.99</span>
+                  <span className="text-[10px] font-sans text-stone-350 uppercase tracking-wider font-semibold">/ year</span>
                 </div>
-                <div className="p-2.5 rounded-xl bg-white/[0.04] border border-white/10 flex flex-col gap-0.5">
-                  <span className="text-[9px] font-sans uppercase font-bold text-yellow-400 tracking-wider">Limited Time Special</span>
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-2xl font-sans font-black text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.35)]">$80.00</span>
-                    <span className="text-[10px] font-sans text-stone-300">first year</span>
-                  </div>
-                </div>
+                <span className="text-[9.5px] font-sans text-emerald-400 uppercase font-bold tracking-wider">
+                  Equivalent to just $6.25 / month!
+                </span>
               </div>
-              <p className="text-[9px] font-sans text-slate-300 uppercase tracking-wider mb-5 font-semibold">
-                Rebills at regular price of $100.00/yr thereafter. Best rate guaranteed.
+              <p className="text-[9px] font-sans text-stone-550 uppercase tracking-wider mb-5 font-light leading-relaxed">
+                Complete unrestricted elite package. Best rate guaranteed.
               </p>
             </div>
-            <button
-              onClick={handleUpgrade}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-slate-200/20 via-white/10 to-slate-400/25 text-white border border-slate-500/50 hover:from-white hover:via-slate-100 hover:to-slate-300 hover:text-stone-950 hover:border-white hover:shadow-[0_0_25px_rgba(255,255,255,0.38)] font-sans text-[10px] font-semibold tracking-widest uppercase cursor-pointer transition-all active:scale-[98.5%] shadow-lg flex items-center justify-center gap-1.5"
+            <a
+              href={annualLink}
+              onClick={handleLinkClick}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-stone-850 to-stone-950 border border-stone-750 hover:border-white text-white hover:bg-white/5 font-sans text-[10px] font-semibold tracking-widest uppercase cursor-pointer transition-all active:scale-[98.5%] shadow-lg flex items-center justify-center gap-1.5 text-center no-underline hover:text-white"
             >
-              <span>Activate $80.00 Annual</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+              <span>Subscribe Annually</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
+
+          {/* Lifetime Membership */}
+          <div className="p-5 rounded-2xl bg-gradient-to-b from-[#1c1204] to-[#0a0504] border-2 border-amber-500/35 flex flex-col justify-between relative group hover:border-amber-400 transition-all shadow-[0_5px_15px_rgba(245,158,11,0.06)]">
+            <div className="absolute top-3 right-3 bg-amber-500 text-[6.5px] font-sans text-stone-950 font-black uppercase px-2 py-0.5 rounded tracking-wider shadow">
+              BEST VALUE
+            </div>
+            <div>
+              <span className="text-[8px] font-sans font-semibold text-amber-400 uppercase tracking-widest block mb-1">
+                Ultimate Lifetime
+              </span>
+              <h4 className="text-xs font-sans font-semibold text-white uppercase tracking-wider mb-1">
+                Lifetime Membership
+              </h4>
+              <div className="flex flex-col gap-1 my-4">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-3xl font-sans font-black text-amber-400 drop-shadow-[0_0_8px_rgba(245,158,11,0.35)]">$99.99</span>
+                  <span className="text-[10px] font-sans text-stone-300 uppercase tracking-wider font-semibold">/ one-time</span>
+                </div>
+                <span className="text-[9.5px] font-sans text-amber-500 uppercase font-bold tracking-wider">
+                  Pay once, own forever!
+                </span>
+              </div>
+              <p className="text-[9px] font-sans text-slate-300 uppercase tracking-wider mb-5 font-semibold">
+                No monthly or annual rebills. Lifetime access to all premium features.
+              </p>
+            </div>
+            <a
+              href={lifetimeLink}
+              onClick={handleLinkClick}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-500 text-stone-950 hover:from-amber-400 hover:to-yellow-400 font-sans text-[10px] font-black tracking-widest uppercase cursor-pointer transition-all active:scale-[98.5%] shadow-lg flex items-center justify-center gap-1.5 text-center no-underline hover:text-stone-950"
+            >
+              <span>Unlock Lifetime</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
           </div>
 
         </div>
 
+      </div>
+
+      {/* Simulation / Developer Bypass for Testing */}
+      <div className="flex flex-col items-center justify-center gap-3 p-6 rounded-3xl bg-stone-950/45 border border-stone-900/60 mt-4 text-center">
+        <h4 className="text-[9px] font-sans font-bold uppercase tracking-widest text-stone-400 flex items-center gap-1.5 justify-center">
+          <Sparkles className="w-3 h-3 text-stone-500" />
+          Developer Testing Center
+        </h4>
+        <p className="text-[10px] font-sans text-stone-500 max-w-sm leading-relaxed">
+          While Stripe Checkout handles actual real-world revenue collection, use this simulator tool to instantly toggle Premium Active status in this browser session.
+        </p>
+        <button
+          onClick={() => {
+            onChangeSubscriptionTier(subscriptionTier === "paid" ? "free" : "paid");
+          }}
+          className={`px-4 py-2.5 rounded-xl font-sans text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+            subscriptionTier === "paid"
+              ? "bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20"
+              : "bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
+          }`}
+        >
+          {subscriptionTier === "paid" ? "Deactivate Premium Simulation" : "Activate Premium Simulation"}
+        </button>
       </div>
 
       {/* Billing Info Footer Area */}

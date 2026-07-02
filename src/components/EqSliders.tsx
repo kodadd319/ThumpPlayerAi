@@ -10,9 +10,6 @@ interface EqSlidersProps {
   selectedPresetName: string;
   onPresetSelect: (preset: Preset) => void;
   isPremiumActive?: boolean;
-  customEqBands: number[] | null;
-  onSaveCustom: () => void;
-  onResetCustom: () => void;
 }
 
 export const EqSliders: React.FC<EqSlidersProps> = ({
@@ -22,10 +19,7 @@ export const EqSliders: React.FC<EqSlidersProps> = ({
   presets,
   selectedPresetName,
   onPresetSelect,
-  isPremiumActive = false,
-  customEqBands,
-  onSaveCustom,
-  onResetCustom
+  isPremiumActive = false
 }) => {
   const bands = [
     { label: "60 Hz", subtext: "Deep Bass", color: "from-[#991b1b] to-[#1c0303]" }, 
@@ -62,37 +56,6 @@ export const EqSliders: React.FC<EqSlidersProps> = ({
           {presets.map((preset) => {
             const isSelected = selectedPresetName === preset.name;
             const isLocked = preset.isPremium && !isPremiumActive;
-            const isCustom = preset.name.toLowerCase() === "custom";
-
-            if (isCustom) {
-              return (
-                <div key={preset.name} className="flex items-center gap-1.5 w-full">
-                  <button
-                    type="button"
-                    onClick={() => onPresetSelect(preset)}
-                    className={`flex-1 px-2.5 py-1.5 rounded-lg border-2 text-[10px] font-sans font-semibold tracking-wider transition-all cursor-pointer text-left uppercase truncate flex items-center justify-between gap-1 h-[32px] ${
-                      isSelected
-                        ? "bg-white/10 text-white border-slate-350 shadow-[0_0_8px_rgba(255,255,255,0.4)]"
-                        : "bg-black border-stone-850 hover:bg-stone-900 text-stone-400 hover:text-white"
-                    }`}
-                    title={preset.name}
-                  >
-                    <span className="truncate">{preset.name}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onResetCustom();
-                    }}
-                    className="p-1.5 rounded-lg border-2 border-stone-850 bg-black hover:bg-stone-900 text-stone-400 hover:text-red-400 transition-all cursor-pointer flex items-center justify-center shrink-0 h-[32px] w-[32px]"
-                    title="Reset Custom Preset"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              );
-            }
 
             return (
               <button
@@ -113,29 +76,6 @@ export const EqSliders: React.FC<EqSlidersProps> = ({
           })}
         </div>
       </div>
-
-      {/* Prompt for Custom Preset adjustment/saving */}
-      {selectedPresetName === "Custom" && (
-        <div className="mb-4 p-3 bg-blue-950/40 border border-blue-900/40 rounded-lg flex flex-col sm:flex-row items-center justify-between gap-3 animate-fade-in z-10">
-          <div className="flex flex-col text-left">
-            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider leading-none mb-1">
-              Custom Equalizer
-            </span>
-            <span className="text-xs text-slate-200 font-medium leading-tight">
-              {customEqBands === null 
-                ? "adjust equalizer to desired levels" 
-                : "Levels saved to your account. Adjust anytime & save to update."}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={onSaveCustom}
-            className="w-full sm:w-auto px-4 py-1.5 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-sans font-bold text-[11px] rounded shadow-lg shadow-cyan-950/50 hover:shadow-cyan-900/60 transition-all cursor-pointer flex items-center justify-center gap-1 uppercase tracking-wider"
-          >
-            Save
-          </button>
-        </div>
-      )}
 
       {/* Grid of Equalizer faders */}
       <div className="flex-1 grid grid-cols-5 gap-4 items-stretch relative min-h-[260px] md:min-h-[360px] z-10">
